@@ -1,0 +1,45 @@
+services:
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
+  soc-agent:
+    build: ./soc-agent
+    container_name: soc-agent
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - REASONER_MODEL=${REASONER_MODEL}
+      - ROUTER_MODEL=${ROUTER_MODEL}
+      - SPLUNK_HOST=${SPLUNK_HOST}
+      - SPLUNK_PORT=${SPLUNK_PORT}
+      - SPLUNK_TOKEN=${SPLUNK_TOKEN}
+      - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL}
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  web-ui:
+    build: ./web-ui
+    container_name: web-ui
+    environment:
+      - SOC_AGENT_URL=http://soc-agent:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - soc-agent
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

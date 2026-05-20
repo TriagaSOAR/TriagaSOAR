@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+httpx
+ollama
+mcp
+pydantic
+python-dotenv
+sqlite-utils
