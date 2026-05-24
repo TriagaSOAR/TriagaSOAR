@@ -76,7 +76,11 @@ async def investigate(alert: dict, classification: dict) -> dict:
             "content": f"""You are an autonomous SOC analyst. Investigate security alerts by analyzing Splunk data.
 
 Available index: {index}
+Sourcetype: linux_secure (raw syslog — fields like src_ip, user, status are NOT extracted)
 Always use index={index} in your SPL queries.
+Search raw text using quotes: index={index} "search term" rather than field=value syntax.
+Example good query: index=main "Failed password" "10.10.10.99"
+Example bad query: index=main src_ip=10.10.10.99 status=failed
 
 For each step, respond with JSON:
 {{
@@ -125,6 +129,16 @@ Begin investigation.""",
             break
 
         next_spl = step["next_spl"]
+
+        # Sanity check — skip if it doesn't look like SPL
+        if not next_spl.strip().startswith("index="):
+            messages.append({
+                "role": "user",
+                "content": "Invalid SPL query. Your next_spl must start with 'index='. Try again.",
+            })
+            depth += 1
+            continue
+
         queries_run.append(next_spl)
         query_results = await run_query(
             next_spl,
@@ -157,7 +171,11 @@ Investigation findings: {json.dumps(investigation["findings"])}
 Queries run: {json.dumps(investigation["queries_run"])}
 
 Available index: {index}
+Sourcetype: linux_secure (raw syslog — fields like src_ip, user, status are NOT extracted)
 All suggested SPL queries must use index={index}.
+Search raw text using quotes: index={index} "search term" rather than field=value syntax.
+Example good query: index=main "Failed password" "10.10.10.99"
+Example bad query: index=main src_ip=10.10.10.99 status=failed
 
 Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
 {{
@@ -202,6 +220,9 @@ async def triage(alert: dict) -> dict:
     if review["verdict"] == "needs_reinvestigation" and review.get("missed_pivots"):
         extra_findings = []
         for spl in review["missed_pivots"][:2]:
+            # Sanity check missed pivots too
+            if not spl.strip().startswith("index="):
+                continue
             results = await run_query(spl, earliest=alert.get("earliest", "-1h"))
             extra_findings.append({
                 "spl": spl,

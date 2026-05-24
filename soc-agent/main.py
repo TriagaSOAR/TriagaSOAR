@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from splunk_mcp import run_query
 from agent import triage
+from report import generate_ir_report
 
 app = FastAPI(title="SOC Triage Agent")
 
@@ -16,3 +17,9 @@ async def test_splunk():
 @app.post("/triage")
 async def triage_alert(alert: dict):
     return await triage(alert)
+
+@app.post("/investigate")
+async def investigate_alert(alert: dict):
+    result = await triage(alert)
+    report = generate_ir_report(alert, result)
+    return report
