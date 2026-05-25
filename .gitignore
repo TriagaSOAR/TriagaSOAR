@@ -1,2 +1,4 @@
 .env
-web-ui/target
+web-backend/target
+data/*.db
+data/*.sqlite

@@ -1,0 +1,56 @@
+---
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title} — SOC Triage</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles/global.css" />
+  </head>
+  <body>
+    <nav class="navbar">
+      <div class="nav-left">
+        <span class="nav-logo">⬡ SOC TRIAGE</span>
+        <span class="nav-version">v0.1.0</span>
+      </div>
+      <div class="nav-links">
+        <a href="/" class="nav-link">Cases</a>
+        <a href="/investigate" class="nav-link">Investigate</a>
+      </div>
+      <div class="nav-right">
+        <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">
+          <span class="theme-icon">◐</span>
+        </button>
+      </div>
+    </nav>
+    <main class="main-content">
+      <slot />
+    </main>
+  </body>
+  <script>
+    // Theme toggle with localStorage persistence
+    const root = document.documentElement;
+    const btn = document.getElementById("theme-toggle");
+    const saved = localStorage.getItem("theme") ?? "dark";
+    root.setAttribute("data-theme", saved);
+
+    btn?.addEventListener("click", () => {
+      const current = root.getAttribute("data-theme");
+      const next = current === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      localStorage.setItem("theme", next);
+    });
+  </script>
+</html>

@@ -25,4 +25,8 @@ echo "[*] Phase 3: Privilege escalation"
 echo "$(date -u +"%Y-%m-%dT%H:%M:%S.%6N+00:00") inf sudo: $TARGET_USER : TTY=pts/0 ; PWD=/home/$TARGET_USER ; USER=root ; COMMAND=/bin/bash" >> $LOG_FILE
 echo "$(date -u +"%Y-%m-%dT%H:%M:%S.%6N+00:00") inf sudo: pam_unix(sudo:session): session opened for user root(uid=0) by $TARGET_USER(uid=1000)" >> $LOG_FILE
 
+# Phase 4: Lateral movement to second user
+echo "$(date -u +"%Y-%m-%dT%H:%M:%S.%6N+00:00") inf sudo: inf : TTY=pts/0 ; PWD=/home/inf ; USER=victim ; COMMAND=/bin/bash" >> $LOG_FILE
+echo "$(date -u +"%Y-%m-%dT%H:%M:%S.%6N+00:00") inf sudo: pam_unix(sudo:session): session opened for user victim(uid=1001) by inf(uid=1000)" >> $LOG_FILE
+
 echo "[+] Attack simulation complete. Wait ~60s for Splunk to index, then run triage."

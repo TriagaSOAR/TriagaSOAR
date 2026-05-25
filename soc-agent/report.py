@@ -26,7 +26,7 @@ def generate_ir_report(alert: dict, triage_result: dict) -> dict:
     )
     kill_chain = assemble_kill_chain(techniques)
 
-    # Evidence gate — floor confidence only if no high-confidence findings
+    # Evidence gate – floor confidence only if no high-confidence findings
     # and no extra findings returned results
     evidence_found = (
         any(f.get("confidence", 0) >= 0.7 for f in investigation.get("findings", []))

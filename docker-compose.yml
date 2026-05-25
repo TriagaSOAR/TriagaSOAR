@@ -23,21 +23,28 @@ services:
       - SPLUNK_PORT=${SPLUNK_PORT}
       - SPLUNK_TOKEN=${SPLUNK_TOKEN}
       - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL}
+      - DB_PATH=${DB_PATH}
     volumes:
       - ./data:/app/data
     depends_on:
       - ollama
     restart: unless-stopped
 
-  web-ui:
-    build: ./web-ui
-    container_name: web-ui
+  web-backend:
+    build: ./web-backend
+    container_name: web-backend
+    network_mode: host
     environment:
       - SOC_AGENT_URL=http://localhost:8000
-    ports:
-      - "3000:3000"
-    depends_on:
-      - soc-agent
+    restart: unless-stopped
+
+  web-frontend:
+    build:
+      context: ./web-frontend
+      args:
+        PUBLIC_API_URL: http://localhost:3000
+    container_name: web-frontend
+    network_mode: host
     restart: unless-stopped
 
 volumes:
