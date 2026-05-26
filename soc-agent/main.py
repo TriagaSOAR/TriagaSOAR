@@ -1,10 +1,13 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
 from splunk_mcp import run_query
 from agent import triage
 from report import generate_ir_report
 from database import init_db, save_report, correlate, get_all_cases, get_case
 from blast_radius import estimate_blast_radius
+from streaming import stream_investigation
 
 
 @asynccontextmanager
@@ -37,21 +40,29 @@ async def investigate_alert(alert: dict):
     prior_cases = correlate(alert)
     result = await triage(alert)
     report = generate_ir_report(alert, result)
-
     blast = await estimate_blast_radius(alert, report)
     report["blast_radius"] = blast
-
     if prior_cases:
         report["prior_cases"] = prior_cases
         report["repeated_attacker"] = True
     else:
         report["prior_cases"] = []
         report["repeated_attacker"] = False
-
     case_id = save_report(report, alert)
     report["case_id"] = case_id
-
     return report
+
+
+@app.post("/investigate/stream")
+async def investigate_stream(alert: dict):
+    return StreamingResponse(
+        stream_investigation(alert),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/cases")

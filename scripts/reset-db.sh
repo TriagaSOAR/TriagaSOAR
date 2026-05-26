@@ -4,7 +4,7 @@
 DB_PATH="./data/cases.db"
 
 if [ -f "$DB_PATH" ]; then
-  rm "$DB_PATH"
+  rm -f "$DB_PATH"
   echo "[+] Database wiped: $DB_PATH"
 else
   echo "[*] No database found at $DB_PATH, nothing to wipe"
