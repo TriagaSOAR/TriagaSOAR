@@ -1,16 +1,17 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from contextlib import asynccontextmanager
 import asyncio
-from splunk_mcp import run_query
-from agent import triage
+import os
+from splunk_mcp import run_query, call_tool
+from agent import triage, ollama_chat
 from report import generate_ir_report
 from database import init_db, save_report, correlate, get_all_cases, get_case
 from blast_radius import estimate_blast_radius
 from streaming import stream_investigation
 from webhook import parse_splunk_webhook
 from monitor import monitor_loop, get_saved_alerts, MONITOR_INTERVAL
+from threat_intel import enrich_ips, lookup_ip
 
 monitor_task = None
 
@@ -19,8 +20,6 @@ monitor_task = None
 async def lifespan(app: FastAPI):
     global monitor_task
     init_db()
-    # Only start monitor if enabled
-    import os
     if os.getenv("MONITOR_ENABLED", "false").lower() == "true":
         monitor_task = asyncio.create_task(monitor_loop(app))
         print("[monitor] Monitor started")
@@ -55,6 +54,8 @@ async def investigate_alert(alert: dict):
     report = generate_ir_report(alert, result)
     blast = await estimate_blast_radius(alert, report)
     report["blast_radius"] = blast
+    attacker_ips = blast.get("attacker_ips", [])
+    report["threat_intel"] = await enrich_ips(attacker_ips) if attacker_ips else {}
     if prior_cases:
         report["prior_cases"] = prior_cases
         report["repeated_attacker"] = True
@@ -98,6 +99,8 @@ async def run_webhook_investigation(alert: dict):
         report = generate_ir_report(alert, result)
         blast = await estimate_blast_radius(alert, report)
         report["blast_radius"] = blast
+        attacker_ips = blast.get("attacker_ips", [])
+        report["threat_intel"] = await enrich_ips(attacker_ips) if attacker_ips else {}
         report["prior_cases"] = prior_cases
         report["repeated_attacker"] = len(prior_cases) > 0
         report["triggered_by"] = "webhook"
@@ -117,9 +120,161 @@ async def monitor_status():
 
 @app.get("/monitor/alerts")
 async def list_monitor_alerts():
-    """List all saved searches the monitor is watching."""
     alerts = await get_saved_alerts()
     return {"count": len(alerts), "alerts": alerts}
+
+
+@app.get("/threatintel/{ip}")
+async def threat_intel_lookup(ip: str):
+    return await lookup_ip(ip)
+
+
+@app.post("/splunk/query")
+async def natural_language_query(body: dict):
+    nl_query = body.get("query", "")
+    index = body.get("index", "main")
+    earliest = body.get("earliest", "-1h")
+    latest = body.get("latest", "now")
+
+    if not nl_query:
+        raise HTTPException(status_code=400, detail="Query is required")
+
+    prompt = f"""You are a Splunk SPL expert. Convert this natural language query to a valid SPL search query.
+
+Natural language query: {nl_query}
+Available index: {index}
+Sourcetype available: linux_secure (raw syslog auth logs)
+
+Rules:
+- Always start with: index={index}
+- Use raw text search with quotes since fields are not extracted
+- Keep it simple and functional
+- Return ONLY the SPL query, nothing else, no explanation, no markdown
+
+SPL query:"""
+
+    result = await ollama_chat(
+        os.getenv("REASONER_MODEL", "qwen3:14b"),
+        [{"role": "user", "content": prompt}]
+    )
+    spl = result["message"]["content"].strip()
+
+    if "<think>" in spl:
+        spl = spl[spl.rfind("</think>") + 8:].strip()
+    if "```" in spl:
+        lines = spl.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        spl = "\n".join(lines).strip()
+
+    if not spl.startswith("index="):
+        raise HTTPException(status_code=422, detail=f"Generated invalid SPL: {spl}")
+
+    results = await run_query(spl, earliest=earliest, latest=latest, limit=50)
+
+    return {
+        "natural_language": nl_query,
+        "generated_spl": spl,
+        "result_count": len(results),
+        "results": results,
+    }
+
+
+@app.get("/splunk/health")
+async def splunk_health():
+    info_task = call_tool("splunk_get_info", {})
+    indexes_task = call_tool("splunk_get_indexes", {"row_limit": 50})
+    metadata_task = call_tool("splunk_get_metadata", {"type": "sourcetypes", "index": "*"})
+
+    info_result, indexes_result, metadata_result = await asyncio.gather(
+        info_task, indexes_task, metadata_task, return_exceptions=True
+    )
+
+    instance_info = {}
+    if not isinstance(info_result, Exception):
+        content = info_result.get("result", {}).get("structuredContent", {})
+        results = content.get("results", [])
+        if results:
+            instance_info = results[0]
+
+    indexes = []
+    if not isinstance(indexes_result, Exception):
+        content = indexes_result.get("result", {}).get("structuredContent", {})
+        indexes = content.get("results", [])
+
+    sourcetypes = []
+    if not isinstance(metadata_result, Exception):
+        content = metadata_result.get("result", {}).get("structuredContent", {})
+        sourcetypes = content.get("results", [])
+
+    return {
+        "instance": instance_info,
+        "indexes": indexes,
+        "sourcetypes": sourcetypes,
+    }
+
+
+@app.get("/cases/{report_id}/navigator")
+async def mitre_navigator_export(report_id: str):
+    case = get_case(report_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    techniques = case.get("mitre_techniques", [])
+    confidence = case.get("final_confidence", 0)
+
+    layer = {
+        "name": f"SOC Triage — {case.get('alert', {}).get('title', report_id)}",
+        "versions": {
+            "attack": "14",
+            "navigator": "4.9",
+            "layer": "4.5",
+        },
+        "domain": "enterprise-attack",
+        "description": f"Auto-generated by Splunk SOC Triage Agent. Report: {report_id}. Confidence: {round(confidence * 100)}%",
+        "filters": {"platforms": ["Linux", "Windows", "macOS"]},
+        "sorting": 0,
+        "layout": {
+            "layout": "side",
+            "aggregateFunction": "average",
+            "showID": True,
+            "showName": True,
+        },
+        "hideDisabled": False,
+        "techniques": [],
+        "gradient": {
+            "colors": ["#ffffff", "#ff6666"],
+            "minValue": 0,
+            "maxValue": 100,
+        },
+        "legendItems": [{"label": "Detected technique", "color": "#ff6666"}],
+        "metadata": [],
+        "links": [],
+        "showTacticRowBackground": True,
+        "tacticRowBackground": "#16161f",
+        "selectTechniquesAcrossTactics": False,
+        "selectSubtechniquesWithParent": False,
+    }
+
+    for t in techniques:
+        layer["techniques"].append({
+            "techniqueID": t.get("technique_id", ""),
+            "tactic": t.get("tactic", "").lower().replace(" ", "-"),
+            "score": round(confidence * 100),
+            "color": "",
+            "comment": t.get("technique_name", ""),
+            "enabled": True,
+            "metadata": [],
+            "links": [],
+            "showSubtechniques": True,
+        })
+
+    return JSONResponse(
+        content=layer,
+        headers={
+            "Content-Disposition": f"attachment; filename=navigator_{report_id}.json",
+            "Content-Type": "application/json",
+        }
+    )
 
 
 @app.get("/cases")

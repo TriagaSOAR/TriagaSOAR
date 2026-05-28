@@ -51,6 +51,7 @@ interface Report {
   blast_radius: BlastRadius;
   prior_cases: PriorCase[];
   repeated_attacker: boolean;
+  threat_intel: Record<string, any>;
 }
 
 interface Props {
@@ -69,17 +70,21 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
       .catch(() => setLoading(false));
   }, [reportId]);
 
-  if (loading) return (
-    <div style={{ color: "var(--text-muted)", fontFamily: "Geist Mono", fontSize: 13 }}>
-      Loading case...
-    </div>
-  );
+  if (loading) {
+    return (
+      <div style={{ color: "var(--text-muted)", fontFamily: "Geist Mono", fontSize: 13 }}>
+        Loading case...
+      </div>
+    );
+  }
 
-  if (!report) return (
-    <div style={{ color: "var(--critical)", fontFamily: "Geist Mono", fontSize: 13 }}>
-      Case not found.
-    </div>
-  );
+  if (!report) {
+    return (
+      <div style={{ color: "var(--critical)", fontFamily: "Geist Mono", fontSize: 13 }}>
+        Case not found.
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -158,20 +163,41 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
       {/* MITRE Kill Chain */}
       {report.mitre_techniques?.length > 0 && (
         <div className="card">
-          <div className="card-header">MITRE ATT&CK Kill Chain</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div className="card-header" style={{ marginBottom: 0 }}>MITRE ATT&amp;CK Kill Chain</div>
+            <a
+              href={`${apiUrl}/cases/${report.report_id}/navigator`}
+              download={`navigator_${report.report_id}.json`}
+              style={{
+                fontSize: 12,
+                color: "var(--accent)",
+                textDecoration: "none",
+                fontFamily: "Geist Mono",
+                padding: "4px 10px",
+                border: "1px solid var(--accent)",
+                borderRadius: 4,
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "var(--accent-glow)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "transparent"; }}
+            >
+              ↓ Navigator Export
+            </a>
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 0, flexWrap: "wrap" }}>
             {report.mitre_techniques.map((t, i) => (
               <div key={t.technique_id} style={{ display: "flex", alignItems: "center" }}>
                 <a href={t.url} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>
-                  <div style={{
-                    padding: "10px 14px",
-                    borderRadius: 8,
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-hover)",
-                    transition: "border-color 0.15s",
-                  }}
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--accent)")}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border)")}
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-hover)",
+                      transition: "border-color 0.15s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
                   >
                     <div style={{ fontFamily: "Geist Mono", fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>
                       {t.technique_id}
@@ -203,7 +229,7 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
               paddingBottom: 12,
               borderBottom: i < report.findings.length - 1 ? "1px solid var(--border)" : "none",
             }}>
-              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div style={{ flexShrink: 0 }}>
                 <div style={{
                   width: 28, height: 28, borderRadius: "50%",
                   background: "var(--bg-hover)", border: "1px solid var(--border)",
@@ -263,6 +289,50 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
         </div>
       )}
 
+      {/* Threat Intel */}
+      {report.threat_intel && Object.keys(report.threat_intel).length > 0 && (
+        <div className="card">
+          <div className="card-header">Threat Intelligence</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {Object.entries(report.threat_intel).map(([ip, intel]: [string, any]) => (
+              <div key={ip} style={{
+                padding: "12px",
+                borderRadius: 8,
+                background: "var(--bg-hover)",
+                border: `1px solid ${intel.available && intel.abuse_confidence_score > 0 ? "rgba(255,77,106,0.3)" : "var(--border)"}`,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontFamily: "Geist Mono", fontSize: 13, color: "var(--critical)", fontWeight: 600 }}>{ip}</span>
+                  {intel.available ? (
+                    <span style={{
+                      fontFamily: "Geist Mono", fontSize: 11, fontWeight: 600,
+                      padding: "2px 8px", borderRadius: 4,
+                      background: threatLevelBg(intel.threat_level),
+                      color: threatLevelColor(intel.threat_level),
+                      border: `1px solid ${threatLevelColor(intel.threat_level)}44`,
+                      textTransform: "uppercase",
+                    }}>{intel.threat_level}</span>
+                  ) : (
+                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{intel.message}</span>
+                  )}
+                </div>
+                {intel.available && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                    <Stat label="Abuse Score" value={`${intel.abuse_confidence_score}%`} highlight={intel.abuse_confidence_score > 50} />
+                    <Stat label="Country" value={intel.country_code} />
+                    <Stat label="ISP" value={intel.isp} />
+                    <Stat label="Total Reports" value={intel.total_reports} highlight={intel.total_reports > 10} />
+                    <Stat label="Distinct Users" value={intel.num_distinct_users} />
+                    <Stat label="Usage Type" value={intel.usage_type} />
+                    {intel.is_tor && <Stat label="TOR Exit Node" value="YES" highlight />}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Adversarial Review */}
       <div className="card">
         <div className="card-header">Adversarial Review</div>
@@ -313,6 +383,37 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
 
     </div>
   );
+}
+
+function Stat({ label, value, highlight = false }: { label: string; value: any; highlight?: boolean }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "Geist Mono", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, color: highlight ? "var(--critical)" : "var(--text-primary)", fontWeight: highlight ? 600 : 400 }}>{value}</div>
+    </div>
+  );
+}
+
+function threatLevelColor(level: string): string {
+  const colors: Record<string, string> = {
+    critical: "var(--critical)",
+    high: "var(--high)",
+    medium: "var(--medium)",
+    low: "var(--low)",
+    clean: "var(--low)",
+  };
+  return colors[level] ?? "var(--text-muted)";
+}
+
+function threatLevelBg(level: string): string {
+  const colors: Record<string, string> = {
+    critical: "rgba(255,77,106,0.15)",
+    high: "rgba(255,140,66,0.15)",
+    medium: "rgba(255,209,102,0.15)",
+    low: "rgba(6,214,160,0.15)",
+    clean: "rgba(6,214,160,0.1)",
+  };
+  return colors[level] ?? "var(--bg-hover)";
 }
 
 function confidenceColor(c: number): string {

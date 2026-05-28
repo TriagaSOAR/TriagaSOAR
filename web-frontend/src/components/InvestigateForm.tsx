@@ -12,7 +12,7 @@ interface Props {
   apiUrl: string;
 }
 
-type Stage = "idle" | "routing" | "investigating" | "reviewing" | "reinvestigating" | "blast_radius" | "correlating" | "generating_report" | "done" | "error";
+type Stage = "idle" | "routing" | "investigating" | "reviewing" | "reinvestigating" | "blast_radius" | "threat_intel" | "correlating" | "generating_report" | "done" | "error";
 
 interface StreamEvent {
   type: string;
@@ -318,6 +318,7 @@ function stageLabel(stage: string): string {
     reviewing: "ADVERSARIAL REVIEW",
     reinvestigating: "RE-INVESTIGATING",
     blast_radius: "BLAST RADIUS",
+    threat_intel: "THREAT INTELLIGENCE",
     correlating: "CORRELATING",
     generating_report: "GENERATING REPORT",
   };

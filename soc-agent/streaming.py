@@ -6,6 +6,7 @@ from splunk_mcp import run_query
 from report import generate_ir_report
 from database import save_report, correlate
 from blast_radius import estimate_blast_radius
+from threat_intel import enrich_ips
 import os
 
 REASONER_MODEL = os.getenv("REASONER_MODEL", "qwen3:14b")
@@ -20,7 +21,6 @@ def sse_event(event_type: str, data: dict) -> str:
 async def stream_investigation(alert: dict) -> AsyncGenerator[str, None]:
     index = alert.get("index", "main")
 
-    # Step 1: routing
     yield sse_event("status", {"stage": "routing", "message": "Classifying alert..."})
     classification = await route_alert(alert)
     yield sse_event("classification", classification)
@@ -34,7 +34,6 @@ async def stream_investigation(alert: dict) -> AsyncGenerator[str, None]:
 
     yield sse_event("status", {"stage": "investigating", "message": "Starting investigation loop..."})
 
-    # Step 2: initial context
     initial_context = await run_query(
         f"index={index} | search {alert.get('search_terms', '*')} | head 20",
         earliest=alert.get("earliest", "-1h"),
@@ -95,12 +94,10 @@ Begin investigation.""",
 
         if "<think>" in text:
             text = text[text.rfind("</think>") + 8:].strip()
-
         if "```" in text:
             lines = text.split("\n")
             lines = [l for l in lines if not l.strip().startswith("```")]
             text = "\n".join(lines).strip()
-
         start = text.find("{")
         end = text.rfind("}") + 1
         if start != -1 and end > start:
@@ -118,17 +115,13 @@ Begin investigation.""",
             "pivot_reason": step.get("pivot_reason"),
         }
         findings.append(finding)
-
-        # Stream finding immediately
         yield sse_event("finding", finding)
-
         messages.append({"role": "assistant", "content": text})
 
         if step.get("complete") or not step.get("next_spl"):
             break
 
         next_spl = step["next_spl"]
-
         if not next_spl.strip().startswith("index="):
             messages.append({
                 "role": "user",
@@ -146,10 +139,7 @@ Begin investigation.""",
             latest=alert.get("latest", "now"),
         )
 
-        yield sse_event("query_result", {
-            "spl": next_spl,
-            "count": len(query_results),
-        })
+        yield sse_event("query_result", {"spl": next_spl, "count": len(query_results)})
 
         messages.append({
             "role": "user",
@@ -165,7 +155,6 @@ Begin investigation.""",
         "avg_confidence": sum(f["confidence"] for f in findings) / len(findings) if findings else 0,
     }
 
-    # Step 3: adversarial review
     yield sse_event("status", {"stage": "reviewing", "message": "Adversarial agent reviewing findings..."})
 
     adv_prompt = f"""You are a skeptical senior SOC analyst reviewing an investigation.
@@ -213,7 +202,6 @@ Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
 
     yield sse_event("review", review)
 
-    # Re-investigate missed pivots
     if review["verdict"] == "needs_reinvestigation" and review.get("missed_pivots"):
         yield sse_event("status", {"stage": "reinvestigating", "message": "Running missed pivot queries..."})
         extra_findings = []
@@ -242,9 +230,15 @@ Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
         "final_confidence": final_confidence,
     }
 
-    # Step 4: blast radius + report
     yield sse_event("status", {"stage": "blast_radius", "message": "Estimating blast radius..."})
-    blast = await estimate_blast_radius(alert, triage_result.get("investigation", {}).get("findings", []) and triage_result or {})
+    blast = await estimate_blast_radius(alert, triage_result)
+
+    yield sse_event("status", {"stage": "threat_intel", "message": "Enriching attacker IPs with threat intelligence..."})
+    attacker_ips = blast.get("attacker_ips", [])
+    threat_intel = await enrich_ips(attacker_ips) if attacker_ips else {}
+    report_threat_intel = threat_intel
+    if threat_intel:
+        yield sse_event("threat_intel", threat_intel)
 
     yield sse_event("status", {"stage": "correlating", "message": "Checking prior cases..."})
     prior_cases = correlate(alert)
@@ -252,6 +246,7 @@ Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
     yield sse_event("status", {"stage": "generating_report", "message": "Generating IR report..."})
     report = generate_ir_report(alert, triage_result)
     report["blast_radius"] = blast
+    report["threat_intel"] = report_threat_intel
     report["prior_cases"] = prior_cases
     report["repeated_attacker"] = len(prior_cases) > 0
 
