@@ -3,10 +3,11 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from contextlib import asynccontextmanager
 import asyncio
 import os
+import json
 from splunk_mcp import run_query, call_tool
 from agent import triage, ollama_chat
 from report import generate_ir_report
-from database import init_db, save_report, correlate, get_all_cases, get_case
+from database import init_db, save_report, correlate, get_all_cases, get_case, get_connection
 from blast_radius import estimate_blast_radius
 from streaming import stream_investigation
 from webhook import parse_splunk_webhook
@@ -211,6 +212,67 @@ async def splunk_health():
         "indexes": indexes,
         "sourcetypes": sourcetypes,
     }
+
+
+@app.get("/attackers/{ip}")
+async def attacker_profile(ip: str):
+    conn = get_connection()
+    try:
+        rows = conn.execute("""
+            SELECT c.report_id, c.created_at, c.title, c.severity,
+                   c.alert_type, c.confidence, c.kill_chain, c.full_report
+            FROM cases c
+            JOIN entities e ON e.case_id = c.id
+            WHERE e.type = 'ip' AND e.value = ?
+            ORDER BY c.created_at ASC
+        """, (ip,)).fetchall()
+
+        if not rows:
+            raise HTTPException(status_code=404, detail=f"No cases found for IP {ip}")
+
+        cases = []
+        all_techniques = {}
+        all_users = set()
+        total_events = 0
+
+        for row in rows:
+            report = json.loads(row["full_report"])
+            blast = report.get("blast_radius", {})
+            total_events += sum(
+                int(e.get("event_count", 0) or 0)
+                for e in blast.get("related_events", [])
+                if e.get("entity") == ip
+            )
+            for u in blast.get("compromised_users", []):
+                all_users.add(u)
+            for t in report.get("mitre_techniques", []):
+                tid = t["technique_id"]
+                if tid not in all_techniques:
+                    all_techniques[tid] = {**t, "count": 0}
+                all_techniques[tid]["count"] += 1
+
+            cases.append({
+                "report_id": row["report_id"],
+                "created_at": row["created_at"],
+                "title": row["title"],
+                "severity": row["severity"],
+                "alert_type": row["alert_type"],
+                "confidence": row["confidence"],
+                "kill_chain": row["kill_chain"],
+            })
+
+        return {
+            "ip": ip,
+            "first_seen": cases[0]["created_at"],
+            "last_seen": cases[-1]["created_at"],
+            "total_incidents": len(cases),
+            "total_events": total_events,
+            "compromised_users": list(all_users),
+            "techniques": sorted(all_techniques.values(), key=lambda t: t["count"], reverse=True),
+            "cases": cases,
+        }
+    finally:
+        conn.close()
 
 
 @app.get("/cases/{report_id}/navigator")

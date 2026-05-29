@@ -1,0 +1,11 @@
+---
+export const prerender = false;
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import AttackerProfile from '../../components/AttackerProfile.tsx';
+const { ip } = Astro.params;
+const apiUrl = import.meta.env.PUBLIC_API_URL;
+---
+
+<BaseLayout title={`Attacker ${ip}`}>
+  <AttackerProfile client:load ip={ip} apiUrl={apiUrl} />
+</BaseLayout>

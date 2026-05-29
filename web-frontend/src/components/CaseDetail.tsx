@@ -267,7 +267,12 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
             <div style={{ padding: "12px", borderRadius: 6, background: "var(--bg-hover)", border: "1px solid var(--border)" }}>
               <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "Geist Mono", marginBottom: 6 }}>ATTACKER IPS</div>
               {report.blast_radius.attacker_ips.map((ip) => (
-                <div key={ip} style={{ fontFamily: "Geist Mono", fontSize: 13, color: "var(--critical)" }}>{ip}</div>
+                <a key={ip} href={`/attackers/${ip}`} style={{ textDecoration: "none" }}>
+                  <div style={{
+                    fontFamily: "Geist Mono", fontSize: 13, color: "var(--critical)",
+                    textDecoration: "underline", cursor: "pointer",
+                  }}>{ip}</div>
+                </a>
               ))}
             </div>
             <div style={{ padding: "12px", borderRadius: 6, background: "var(--bg-hover)", border: "1px solid var(--border)" }}>
