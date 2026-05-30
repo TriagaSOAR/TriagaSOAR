@@ -9,6 +9,7 @@ interface Case {
   confidence: number;
   kill_chain: string;
   summary: string;
+  verdict: string | null;
 }
 
 interface Props {
@@ -43,13 +44,9 @@ export default function CaseList({ apiUrl }: Props) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, color: "var(--text-primary)" }}>Case Files</h1>
         <a href="/investigate" style={{
-          background: "var(--accent)",
-          color: "#fff",
-          padding: "8px 16px",
-          borderRadius: 6,
-          textDecoration: "none",
-          fontSize: 13,
-          fontWeight: 500,
+          background: "var(--accent)", color: "#fff",
+          padding: "8px 16px", borderRadius: 6,
+          textDecoration: "none", fontSize: 13, fontWeight: 500,
         }}>+ New Investigation</a>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -66,6 +63,22 @@ export default function CaseList({ apiUrl }: Props) {
                     <span style={{ fontFamily: "Geist Mono", fontSize: 11, color: "var(--text-secondary)" }}>
                       {c.report_id}
                     </span>
+                    {c.verdict === "confirmed" && (
+                      <span style={{
+                        fontSize: 10, fontFamily: "Geist Mono", fontWeight: 600,
+                        padding: "2px 6px", borderRadius: 3,
+                        background: "rgba(6,214,160,0.1)", color: "var(--low)",
+                        border: "1px solid rgba(6,214,160,0.3)", textTransform: "uppercase",
+                      }}>✓ confirmed</span>
+                    )}
+                    {c.verdict === "false_positive" && (
+                      <span style={{
+                        fontSize: 10, fontFamily: "Geist Mono", fontWeight: 600,
+                        padding: "2px 6px", borderRadius: 3,
+                        background: "rgba(120,120,120,0.1)", color: "var(--text-muted)",
+                        border: "1px solid rgba(120,120,120,0.3)", textTransform: "uppercase",
+                      }}>✗ false positive</span>
+                    )}
                   </div>
                   <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4, color: "var(--text-primary)" }}>
                     {c.title}

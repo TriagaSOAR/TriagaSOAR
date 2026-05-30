@@ -52,6 +52,7 @@ interface Report {
   prior_cases: PriorCase[];
   repeated_attacker: boolean;
   threat_intel: Record<string, any>;
+  verdict: string | null;
 }
 
 interface Props {
@@ -62,13 +63,54 @@ interface Props {
 export default function CaseDetail({ reportId, apiUrl }: Props) {
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
+  const [verdict, setVerdict] = useState<string | null>(null);
+  const [verdictLoading, setVerdictLoading] = useState(false);
+  const [savedSearch, setSavedSearch] = useState<string | null>(null);
+  const [savingSearch, setSavingSearch] = useState(false);
 
   useEffect(() => {
     fetch(`${apiUrl}/cases/${reportId}`)
       .then((r) => r.json())
-      .then((data) => { setReport(data); setLoading(false); })
+      .then((data) => { setReport(data); setVerdict(data.verdict ?? null); setLoading(false); })
       .catch(() => setLoading(false));
   }, [reportId]);
+
+  async function submitVerdict(v: string | null) {
+    setVerdictLoading(true);
+    try {
+      await fetch(`${apiUrl}/cases/${reportId}/verdict`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verdict: v }),
+      });
+      setVerdict(v);
+    } finally {
+      setVerdictLoading(false);
+    }
+  }
+
+  async function createDetectionRule() {
+    if (!report) return;
+    setSavingSearch(true);
+    try {
+      const techniques = report.mitre_techniques.map((t) => t.technique_id).join(", ");
+      const spl = `index=${report.alert.index} ${report.alert.title.toLowerCase().replace(/\s+/g, " ")} | head 100`;
+      const res = await fetch(`${apiUrl}/splunk/saved-searches`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `[SOC Triage] ${report.alert.title}`,
+          spl,
+          description: `Auto-generated from IR report ${report.report_id}. Techniques: ${techniques}`,
+        }),
+      });
+      if (res.ok) {
+        setSavedSearch(`[SOC Triage] ${report.alert.title}`);
+      }
+    } finally {
+      setSavingSearch(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -98,20 +140,92 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
             <span style={{ fontFamily: "Geist Mono", fontSize: 12, color: "var(--text-secondary)" }}>{report.report_id}</span>
             {report.repeated_attacker && (
               <span style={{
-                background: "rgba(255,77,106,0.15)",
-                color: "var(--critical)",
-                border: "1px solid rgba(255,77,106,0.3)",
-                padding: "2px 8px",
-                borderRadius: 4,
-                fontSize: 11,
-                fontFamily: "Geist Mono",
-                fontWeight: 500,
+                background: "rgba(255,77,106,0.15)", color: "var(--critical)",
+                border: "1px solid rgba(255,77,106,0.3)", padding: "2px 8px",
+                borderRadius: 4, fontSize: 11, fontFamily: "Geist Mono", fontWeight: 500,
               }}>⚠ REPEATED ATTACKER</span>
+            )}
+            {verdict === "confirmed" && (
+              <span style={{
+                background: "rgba(6,214,160,0.1)", color: "var(--low)",
+                border: "1px solid rgba(6,214,160,0.3)", padding: "2px 8px",
+                borderRadius: 4, fontSize: 11, fontFamily: "Geist Mono", fontWeight: 500,
+              }}>✓ CONFIRMED</span>
+            )}
+            {verdict === "false_positive" && (
+              <span style={{
+                background: "rgba(120,120,120,0.1)", color: "var(--text-muted)",
+                border: "1px solid rgba(120,120,120,0.3)", padding: "2px 8px",
+                borderRadius: 4, fontSize: 11, fontFamily: "Geist Mono", fontWeight: 500,
+              }}>✗ FALSE POSITIVE</span>
             )}
           </div>
           <h1 style={{ fontSize: 22, fontWeight: 600, marginBottom: 4 }}>{report.alert.title}</h1>
           <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
             {report.alert.index} · {report.alert.time_range} · {new Date(report.generated_at).toLocaleString()}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+            <a
+              href={`${apiUrl}/cases/${report.report_id}/pdf`}
+              download={`IR_${report.report_id}.pdf`}
+              style={{
+                fontSize: 12, color: "var(--text-secondary)", textDecoration: "none",
+                fontFamily: "Geist Mono", padding: "4px 10px",
+                border: "1px solid var(--border)", borderRadius: 4, transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--accent)"; (e.currentTarget as HTMLAnchorElement).style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLAnchorElement).style.color = "var(--text-secondary)"; }}
+            >↓ Export PDF</a>
+            <a
+              href={`/compare?a=${report.report_id}`}
+              style={{
+                fontSize: 12, color: "var(--text-secondary)", textDecoration: "none",
+                fontFamily: "Geist Mono", padding: "4px 10px",
+                border: "1px solid var(--border)", borderRadius: 4, transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--accent)"; (e.currentTarget as HTMLAnchorElement).style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLAnchorElement).style.color = "var(--text-secondary)"; }}
+            >⇄ Compare</a>
+            <button
+              onClick={createDetectionRule}
+              disabled={savingSearch || !!savedSearch}
+              style={{
+                fontSize: 12, fontFamily: "Geist Mono", padding: "4px 10px",
+                border: `1px solid ${savedSearch ? "rgba(6,214,160,0.3)" : "var(--border)"}`,
+                borderRadius: 4, background: "transparent",
+                color: savedSearch ? "var(--low)" : "var(--text-secondary)",
+                cursor: savingSearch || savedSearch ? "not-allowed" : "pointer",
+                transition: "all 0.15s",
+              }}
+            >
+              {savedSearch ? "✓ Rule Created" : savingSearch ? "Creating..." : "⊕ Create Detection Rule"}
+            </button>
+          </div>
+
+          {/* Verdict buttons */}
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button
+              onClick={() => submitVerdict(verdict === "confirmed" ? null : "confirmed")}
+              disabled={verdictLoading}
+              style={{
+                fontSize: 12, fontFamily: "Geist Mono", padding: "4px 12px",
+                border: `1px solid ${verdict === "confirmed" ? "rgba(6,214,160,0.5)" : "var(--border)"}`,
+                borderRadius: 4, background: verdict === "confirmed" ? "rgba(6,214,160,0.1)" : "transparent",
+                color: verdict === "confirmed" ? "var(--low)" : "var(--text-muted)",
+                cursor: verdictLoading ? "not-allowed" : "pointer", transition: "all 0.15s",
+              }}
+            >✓ Confirm Incident</button>
+            <button
+              onClick={() => submitVerdict(verdict === "false_positive" ? null : "false_positive")}
+              disabled={verdictLoading}
+              style={{
+                fontSize: 12, fontFamily: "Geist Mono", padding: "4px 12px",
+                border: `1px solid ${verdict === "false_positive" ? "rgba(120,120,120,0.5)" : "var(--border)"}`,
+                borderRadius: 4, background: verdict === "false_positive" ? "rgba(120,120,120,0.1)" : "transparent",
+                color: verdict === "false_positive" ? "var(--text-muted)" : "var(--text-muted)",
+                cursor: verdictLoading ? "not-allowed" : "pointer", transition: "all 0.15s",
+              }}
+            >✗ False Positive</button>
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
@@ -131,7 +245,7 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
         <p style={{ color: "var(--text-secondary)", lineHeight: 1.7 }}>{report.summary}</p>
       </div>
 
-      {/* Prior cases warning */}
+      {/* Prior cases */}
       {report.prior_cases?.length > 0 && (
         <div className="card" style={{ borderColor: "rgba(255,77,106,0.4)", background: "rgba(255,77,106,0.05)" }}>
           <div className="card-header" style={{ color: "var(--critical)" }}>⚠ Prior Cases — Repeated Attacker</div>
@@ -169,45 +283,26 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
               href={`${apiUrl}/cases/${report.report_id}/navigator`}
               download={`navigator_${report.report_id}.json`}
               style={{
-                fontSize: 12,
-                color: "var(--accent)",
-                textDecoration: "none",
-                fontFamily: "Geist Mono",
-                padding: "4px 10px",
-                border: "1px solid var(--accent)",
-                borderRadius: 4,
-                transition: "all 0.15s",
+                fontSize: 12, color: "var(--accent)", textDecoration: "none",
+                fontFamily: "Geist Mono", padding: "4px 10px",
+                border: "1px solid var(--accent)", borderRadius: 4, transition: "all 0.15s",
               }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "var(--accent-glow)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "transparent"; }}
-            >
-              ↓ Navigator Export
-            </a>
+            >↓ Navigator Export</a>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 0, flexWrap: "wrap" }}>
             {report.mitre_techniques.map((t, i) => (
               <div key={t.technique_id} style={{ display: "flex", alignItems: "center" }}>
                 <a href={t.url} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>
                   <div
-                    style={{
-                      padding: "10px 14px",
-                      borderRadius: 8,
-                      border: "1px solid var(--border)",
-                      background: "var(--bg-hover)",
-                      transition: "border-color 0.15s",
-                    }}
+                    style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-hover)", transition: "border-color 0.15s" }}
                     onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
                     onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
                   >
-                    <div style={{ fontFamily: "Geist Mono", fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>
-                      {t.technique_id}
-                    </div>
-                    <div style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 500, marginTop: 2 }}>
-                      {t.technique_name}
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                      {t.tactic}
-                    </div>
+                    <div style={{ fontFamily: "Geist Mono", fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>{t.technique_id}</div>
+                    <div style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 500, marginTop: 2 }}>{t.technique_name}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{t.tactic}</div>
                   </div>
                 </a>
                 {i < report.mitre_techniques.length - 1 && (
@@ -224,31 +319,17 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
         <div className="card-header">Investigation Timeline</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {report.findings.map((f, i) => (
-            <div key={i} style={{
-              display: "flex", gap: 16,
-              paddingBottom: 12,
-              borderBottom: i < report.findings.length - 1 ? "1px solid var(--border)" : "none",
-            }}>
+            <div key={i} style={{ display: "flex", gap: 16, paddingBottom: 12, borderBottom: i < report.findings.length - 1 ? "1px solid var(--border)" : "none" }}>
               <div style={{ flexShrink: 0 }}>
-                <div style={{
-                  width: 28, height: 28, borderRadius: "50%",
-                  background: "var(--bg-hover)", border: "1px solid var(--border)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontFamily: "Geist Mono", fontSize: 11, color: "var(--text-muted)",
-                }}>{i + 1}</div>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--bg-hover)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Geist Mono", fontSize: 11, color: "var(--text-muted)" }}>{i + 1}</div>
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                   <span style={{ fontSize: 13, color: "var(--text-primary)" }}>{f.finding}</span>
-                  <span style={{
-                    fontFamily: "Geist Mono", fontSize: 12, fontWeight: 600,
-                    color: confidenceColor(f.confidence), flexShrink: 0, marginLeft: 16,
-                  }}>{Math.round(f.confidence * 100)}%</span>
+                  <span style={{ fontFamily: "Geist Mono", fontSize: 12, fontWeight: 600, color: confidenceColor(f.confidence), flexShrink: 0, marginLeft: 16 }}>{Math.round(f.confidence * 100)}%</span>
                 </div>
                 {f.pivot_reason && (
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                    → {f.pivot_reason}
-                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>→ {f.pivot_reason}</div>
                 )}
               </div>
             </div>
@@ -260,18 +341,13 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
       {report.blast_radius && (
         <div className="card">
           <div className="card-header">Blast Radius</div>
-          <div style={{ marginBottom: 12, fontSize: 14, color: "var(--text-primary)", fontWeight: 500 }}>
-            {report.blast_radius.risk_summary}
-          </div>
+          <div style={{ marginBottom: 12, fontSize: 14, color: "var(--text-primary)", fontWeight: 500 }}>{report.blast_radius.risk_summary}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
             <div style={{ padding: "12px", borderRadius: 6, background: "var(--bg-hover)", border: "1px solid var(--border)" }}>
               <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "Geist Mono", marginBottom: 6 }}>ATTACKER IPS</div>
               {report.blast_radius.attacker_ips.map((ip) => (
                 <a key={ip} href={`/attackers/${ip}`} style={{ textDecoration: "none" }}>
-                  <div style={{
-                    fontFamily: "Geist Mono", fontSize: 13, color: "var(--critical)",
-                    textDecoration: "underline", cursor: "pointer",
-                  }}>{ip}</div>
+                  <div style={{ fontFamily: "Geist Mono", fontSize: 13, color: "var(--critical)", textDecoration: "underline", cursor: "pointer" }}>{ip}</div>
                 </a>
               ))}
             </div>
@@ -300,23 +376,11 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
           <div className="card-header">Threat Intelligence</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {Object.entries(report.threat_intel).map(([ip, intel]: [string, any]) => (
-              <div key={ip} style={{
-                padding: "12px",
-                borderRadius: 8,
-                background: "var(--bg-hover)",
-                border: `1px solid ${intel.available && intel.abuse_confidence_score > 0 ? "rgba(255,77,106,0.3)" : "var(--border)"}`,
-              }}>
+              <div key={ip} style={{ padding: "12px", borderRadius: 8, background: "var(--bg-hover)", border: `1px solid ${intel.available && intel.abuse_confidence_score > 0 ? "rgba(255,77,106,0.3)" : "var(--border)"}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <span style={{ fontFamily: "Geist Mono", fontSize: 13, color: "var(--critical)", fontWeight: 600 }}>{ip}</span>
                   {intel.available ? (
-                    <span style={{
-                      fontFamily: "Geist Mono", fontSize: 11, fontWeight: 600,
-                      padding: "2px 8px", borderRadius: 4,
-                      background: threatLevelBg(intel.threat_level),
-                      color: threatLevelColor(intel.threat_level),
-                      border: `1px solid ${threatLevelColor(intel.threat_level)}44`,
-                      textTransform: "uppercase",
-                    }}>{intel.threat_level}</span>
+                    <span style={{ fontFamily: "Geist Mono", fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: threatLevelBg(intel.threat_level), color: threatLevelColor(intel.threat_level), border: `1px solid ${threatLevelColor(intel.threat_level)}44`, textTransform: "uppercase" }}>{intel.threat_level}</span>
                   ) : (
                     <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{intel.message}</span>
                   )}
@@ -342,17 +406,9 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
       <div className="card">
         <div className="card-header">Adversarial Review</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <span style={{
-            fontFamily: "Geist Mono", fontSize: 11, fontWeight: 600,
-            color: report.adversarial_review.verdict === "approved" ? "var(--low)" : "var(--medium)",
-            background: report.adversarial_review.verdict === "approved" ? "rgba(6,214,160,0.1)" : "rgba(255,209,102,0.1)",
-            border: `1px solid ${report.adversarial_review.verdict === "approved" ? "rgba(6,214,160,0.3)" : "rgba(255,209,102,0.3)"}`,
-            padding: "2px 8px", borderRadius: 4, textTransform: "uppercase",
-          }}>{report.adversarial_review.verdict}</span>
+          <span style={{ fontFamily: "Geist Mono", fontSize: 11, fontWeight: 600, color: report.adversarial_review.verdict === "approved" ? "var(--low)" : "var(--medium)", background: report.adversarial_review.verdict === "approved" ? "rgba(6,214,160,0.1)" : "rgba(255,209,102,0.1)", border: `1px solid ${report.adversarial_review.verdict === "approved" ? "rgba(6,214,160,0.3)" : "rgba(255,209,102,0.3)"}`, padding: "2px 8px", borderRadius: 4, textTransform: "uppercase" }}>{report.adversarial_review.verdict}</span>
         </div>
-        <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.7 }}>
-          {report.adversarial_review.critique}
-        </p>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.7 }}>{report.adversarial_review.critique}</p>
       </div>
 
       {/* Recommendations */}
@@ -376,11 +432,7 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
           <div className="card-header">SPL Queries Executed</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {report.queries_run.map((q, i) => (
-              <div key={i} style={{
-                fontFamily: "Geist Mono", fontSize: 12, color: "var(--text-secondary)",
-                padding: "8px 12px", borderRadius: 6, background: "var(--bg-hover)",
-                border: "1px solid var(--border)",
-              }}>{q}</div>
+              <div key={i} style={{ fontFamily: "Geist Mono", fontSize: 12, color: "var(--text-secondary)", padding: "8px 12px", borderRadius: 6, background: "var(--bg-hover)", border: "1px solid var(--border)" }}>{q}</div>
             ))}
           </div>
         </div>
@@ -400,24 +452,12 @@ function Stat({ label, value, highlight = false }: { label: string; value: any; 
 }
 
 function threatLevelColor(level: string): string {
-  const colors: Record<string, string> = {
-    critical: "var(--critical)",
-    high: "var(--high)",
-    medium: "var(--medium)",
-    low: "var(--low)",
-    clean: "var(--low)",
-  };
+  const colors: Record<string, string> = { critical: "var(--critical)", high: "var(--high)", medium: "var(--medium)", low: "var(--low)", clean: "var(--low)" };
   return colors[level] ?? "var(--text-muted)";
 }
 
 function threatLevelBg(level: string): string {
-  const colors: Record<string, string> = {
-    critical: "rgba(255,77,106,0.15)",
-    high: "rgba(255,140,66,0.15)",
-    medium: "rgba(255,209,102,0.15)",
-    low: "rgba(6,214,160,0.15)",
-    clean: "rgba(6,214,160,0.1)",
-  };
+  const colors: Record<string, string> = { critical: "rgba(255,77,106,0.15)", high: "rgba(255,140,66,0.15)", medium: "rgba(255,209,102,0.15)", low: "rgba(6,214,160,0.15)", clean: "rgba(6,214,160,0.1)" };
   return colors[level] ?? "var(--bg-hover)";
 }
 

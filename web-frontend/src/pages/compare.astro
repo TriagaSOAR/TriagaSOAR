@@ -1,0 +1,11 @@
+---
+export const prerender = false;
+import BaseLayout from '../layouts/BaseLayout.astro';
+import CaseComparison from '../components/CaseComparison.tsx';
+const { a, b } = Astro.url.searchParams ? Object.fromEntries(Astro.url.searchParams) : {};
+const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
+---
+
+<BaseLayout title="Compare Cases">
+  <CaseComparison client:load apiUrl={apiUrl} initialA={a ?? ""} initialB={b ?? ""} />
+</BaseLayout>

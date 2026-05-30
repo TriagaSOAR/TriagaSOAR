@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface AlertPayload {
   title: string;
   search_terms: string;
-  index: string;
+  indexes: string[];
   earliest: string;
   latest: string;
 }
@@ -14,19 +14,15 @@ interface Props {
 
 type Stage = "idle" | "routing" | "investigating" | "reviewing" | "reinvestigating" | "blast_radius" | "threat_intel" | "correlating" | "generating_report" | "done" | "error";
 
-interface StreamEvent {
-  type: string;
-  data: any;
-}
-
 export default function InvestigateForm({ apiUrl }: Props) {
   const [form, setForm] = useState<AlertPayload>({
     title: "",
     search_terms: "",
-    index: "main",
+    indexes: ["main"],
     earliest: "-1h",
     latest: "now",
   });
+  const [availableIndexes, setAvailableIndexes] = useState<string[]>([]);
   const [stage, setStage] = useState<Stage>("idle");
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [findings, setFindings] = useState<any[]>([]);
@@ -34,8 +30,50 @@ export default function InvestigateForm({ apiUrl }: Props) {
   const [reportId, setReportId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Pre-fill from URL params (for pattern library)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const title = params.get("title");
+    const search_terms = params.get("search_terms");
+    const index = params.get("index");
+    const earliest = params.get("earliest");
+    if (title || search_terms) {
+      setForm((prev) => ({
+        ...prev,
+        title: title ?? prev.title,
+        search_terms: search_terms ?? prev.search_terms,
+        indexes: index ? [index] : prev.indexes,
+        earliest: earliest ?? prev.earliest,
+      }));
+    }
+  }, []);
+
+  // Fetch available indexes
+  useEffect(() => {
+    fetch(`${apiUrl}/splunk/health`)
+      .then((r) => r.json())
+      .then((data) => {
+        const names = (data.indexes ?? [])
+          .map((i: any) => i.title ?? i.name)
+          .filter((n: string) => n && !n.startsWith("_"));
+        if (names.length > 0) setAvailableIndexes(names);
+      })
+      .catch(() => {});
+  }, []);
+
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  }
+
+  function toggleIndex(idx: string) {
+    setForm((prev) => {
+      const has = prev.indexes.includes(idx);
+      if (has && prev.indexes.length === 1) return prev; // keep at least one
+      return {
+        ...prev,
+        indexes: has ? prev.indexes.filter((i) => i !== idx) : [...prev.indexes, idx],
+      };
+    });
   }
 
   async function handleSubmit() {
@@ -48,11 +86,21 @@ export default function InvestigateForm({ apiUrl }: Props) {
     setReportId(null);
     setError(null);
 
+    // Use first index as primary for streaming (multi-index handled server-side)
+    const payload = {
+      title: form.title,
+      search_terms: form.search_terms,
+      index: form.indexes[0],
+      indexes: form.indexes,
+      earliest: form.earliest,
+      latest: form.latest,
+    };
+
     try {
       const response = await fetch(`${apiUrl}/investigate/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -75,12 +123,10 @@ export default function InvestigateForm({ apiUrl }: Props) {
           const lines = part.split("\n");
           let eventType = "message";
           let dataStr = "";
-
           for (const line of lines) {
             if (line.startsWith("event: ")) eventType = line.slice(7).trim();
             if (line.startsWith("data: ")) dataStr = line.slice(6).trim();
           }
-
           if (!dataStr) continue;
           try {
             const data = JSON.parse(dataStr);
@@ -138,14 +184,54 @@ export default function InvestigateForm({ apiUrl }: Props) {
 
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: 20, marginBottom: 24 }}>
         <Field label="Title" hint="Short description of the alert">
-          <input name="title" value={form.title} onChange={handleChange} placeholder="e.g. Brute force attempt from external IP" disabled={isLoading} />
+          <input name="title" value={form.title} onChange={handleChange}
+            placeholder="e.g. Brute force attempt from external IP" disabled={isLoading} />
         </Field>
         <Field label="Search Terms" hint="Keywords or phrases to search in Splunk logs">
-          <input name="search_terms" value={form.search_terms} onChange={handleChange} placeholder='e.g. 10.10.10.99 or "Failed password"' disabled={isLoading} />
+          <input name="search_terms" value={form.search_terms} onChange={handleChange}
+            placeholder='e.g. 10.10.10.99 or "Failed password"' disabled={isLoading} />
         </Field>
-        <Field label="Index" hint="Splunk index to search">
-          <input name="index" value={form.index} onChange={handleChange} placeholder="main" disabled={isLoading} />
-        </Field>
+
+        {/* Multi-index selector */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>Indexes</label>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -4 }}>
+            Select one or more Splunk indexes to search
+          </div>
+          {availableIndexes.length > 0 ? (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {availableIndexes.map((idx) => {
+                const selected = form.indexes.includes(idx);
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => toggleIndex(idx)}
+                    disabled={isLoading}
+                    style={{
+                      padding: "4px 10px", borderRadius: 4,
+                      border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                      background: selected ? "var(--accent-glow)" : "transparent",
+                      color: selected ? "var(--accent)" : "var(--text-muted)",
+                      fontSize: 12, fontFamily: "Geist Mono",
+                      cursor: isLoading ? "not-allowed" : "pointer",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {idx}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <input
+              value={form.indexes.join(", ")}
+              onChange={(e) => setForm((prev) => ({ ...prev, indexes: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) }))}
+              placeholder="main"
+              disabled={isLoading}
+            />
+          )}
+        </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <Field label="Earliest" hint="e.g. -1h, -24h, -7d">
             <input name="earliest" value={form.earliest} onChange={handleChange} placeholder="-1h" disabled={isLoading} />
@@ -154,23 +240,18 @@ export default function InvestigateForm({ apiUrl }: Props) {
             <input name="latest" value={form.latest} onChange={handleChange} placeholder="now" disabled={isLoading} />
           </Field>
         </div>
+
         <button
           onClick={handleSubmit}
           disabled={isLoading || !form.title || !form.search_terms}
           style={{
             background: isLoading ? "var(--bg-hover)" : "var(--accent)",
             color: isLoading ? "var(--text-muted)" : "#fff",
-            border: "none",
-            padding: "12px 24px",
-            borderRadius: 8,
-            fontSize: 14,
-            fontWeight: 600,
+            border: "none", padding: "12px 24px", borderRadius: 8,
+            fontSize: 14, fontWeight: 600,
             cursor: isLoading ? "not-allowed" : "pointer",
             transition: "all 0.15s",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            justifyContent: "center",
+            display: "flex", alignItems: "center", gap: 8, justifyContent: "center",
           }}
         >
           {isLoading ? <><Spinner /> {statusMessage}</> : "Start Investigation"}
@@ -178,10 +259,8 @@ export default function InvestigateForm({ apiUrl }: Props) {
       </div>
 
       {/* Live stream output */}
-      {isLoading || findings.length > 0 || queries.length > 0 ? (
+      {(isLoading || findings.length > 0 || queries.length > 0) && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-
-          {/* Stage indicator */}
           {isLoading && (
             <div className="card" style={{ borderColor: "var(--accent)", background: "var(--accent-glow)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -194,7 +273,6 @@ export default function InvestigateForm({ apiUrl }: Props) {
             </div>
           )}
 
-          {/* Live findings */}
           {findings.length > 0 && (
             <div className="card">
               <div className="card-header">Investigation Findings</div>
@@ -231,7 +309,6 @@ export default function InvestigateForm({ apiUrl }: Props) {
             </div>
           )}
 
-          {/* Live queries */}
           {queries.length > 0 && (
             <div className="card">
               <div className="card-header">SPL Queries Executed</div>
@@ -244,9 +321,11 @@ export default function InvestigateForm({ apiUrl }: Props) {
                   }}>
                     <span style={{ fontFamily: "Geist Mono", fontSize: 12, color: "var(--text-secondary)" }}>{q.spl}</span>
                     {q.count !== undefined && (
-                      <span style={{ fontFamily: "Geist Mono", fontSize: 11, color: q.count > 0 ? "var(--low)" : "var(--text-muted)", flexShrink: 0, marginLeft: 12 }}>
-                        {q.count} events
-                      </span>
+                      <span style={{
+                        fontFamily: "Geist Mono", fontSize: 11,
+                        color: q.count > 0 ? "var(--low)" : "var(--text-muted)",
+                        flexShrink: 0, marginLeft: 12,
+                      }}>{q.count} events</span>
                     )}
                   </div>
                 ))}
@@ -254,15 +333,12 @@ export default function InvestigateForm({ apiUrl }: Props) {
             </div>
           )}
         </div>
-      ) : null}
+      )}
 
-      {/* Done */}
       {stage === "done" && reportId && (
         <div style={{
-          marginTop: 16, padding: "16px",
-          borderRadius: 8,
-          background: "rgba(6,214,160,0.05)",
-          border: "1px solid rgba(6,214,160,0.3)",
+          marginTop: 16, padding: 16, borderRadius: 8,
+          background: "rgba(6,214,160,0.05)", border: "1px solid rgba(6,214,160,0.3)",
         }}>
           <div style={{ color: "var(--low)", fontWeight: 600, marginBottom: 8 }}>✓ Investigation complete</div>
           <div style={{ fontFamily: "Geist Mono", fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>{reportId}</div>
@@ -274,16 +350,12 @@ export default function InvestigateForm({ apiUrl }: Props) {
         </div>
       )}
 
-      {/* Error */}
       {stage === "error" && (
         <div style={{
-          marginTop: 16, padding: "16px", borderRadius: 8,
-          background: "rgba(255,77,106,0.05)",
-          border: "1px solid rgba(255,77,106,0.3)",
+          marginTop: 16, padding: 16, borderRadius: 8,
+          background: "rgba(255,77,106,0.05)", border: "1px solid rgba(255,77,106,0.3)",
           color: "var(--critical)", fontSize: 13,
-        }}>
-          ✗ {error}
-        </div>
+        }}>✗ {error}</div>
       )}
     </div>
   );
@@ -303,10 +375,8 @@ function Spinner() {
   return (
     <span style={{
       display: "inline-block", width: 12, height: 12,
-      border: "2px solid var(--text-muted)",
-      borderTopColor: "var(--text-primary)",
-      borderRadius: "50%",
-      animation: "spin 0.6s linear infinite",
+      border: "2px solid var(--text-muted)", borderTopColor: "var(--text-primary)",
+      borderRadius: "50%", animation: "spin 0.6s linear infinite",
     }} />
   );
 }

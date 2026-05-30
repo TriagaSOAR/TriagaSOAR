@@ -1,0 +1,10 @@
+---
+export const prerender = false;
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PatternLibrary from '../components/PatternLibrary.tsx';
+const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
+---
+
+<BaseLayout title="Attack Patterns">
+  <PatternLibrary client:load apiUrl={apiUrl} />
+</BaseLayout>
