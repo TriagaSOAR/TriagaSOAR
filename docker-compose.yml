@@ -1,40 +1,71 @@
 services:
+
+  # ── Local mode: Ollama on GPU ──────────────────────────────────────────
   ollama:
+    profiles: [local]
     image: ollama/ollama
     container_name: ollama
     runtime: nvidia
+    network_mode: host
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
     restart: unless-stopped
 
-  soc-agent:
+  # ── soc-agent (both modes) ────────────────────────────────────────────
+  soc-agent-local:
+    profiles: [local]
     build: ./soc-agent
     container_name: soc-agent
     network_mode: host
     environment:
+      - LLM_MODE=local
       - OLLAMA_HOST=http://localhost:11434
-      - REASONER_MODEL=${REASONER_MODEL}
-      - ROUTER_MODEL=${ROUTER_MODEL}
+      - REASONER_MODEL=${REASONER_MODEL:-qwen3:14b}
+      - ROUTER_MODEL=${ROUTER_MODEL:-qwen3:1.7b}
       - SPLUNK_HOST=${SPLUNK_HOST}
-      - SPLUNK_PORT=${SPLUNK_PORT}
+      - SPLUNK_PORT=${SPLUNK_PORT:-8089}
       - SPLUNK_TOKEN=${SPLUNK_TOKEN}
-      - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL}
-      - DB_PATH=${DB_PATH}
-      - MONITOR_ENABLED=${MONITOR_ENABLED}
-      - MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS}
-      - MONITOR_COOLDOWN_MINUTES=${MONITOR_COOLDOWN_MINUTES}
-      - ABUSEIPDB_API_KEY=${ABUSEIPDB_API_KEY}
+      - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL:-false}
+      - DB_PATH=${DB_PATH:-/app/data/cases.db}
+      - MONITOR_ENABLED=${MONITOR_ENABLED:-false}
+      - MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-60}
+      - MONITOR_COOLDOWN_MINUTES=${MONITOR_COOLDOWN_MINUTES:-5}
+      - ABUSEIPDB_API_KEY=${ABUSEIPDB_API_KEY:-}
     volumes:
       - ./data:/app/data
     depends_on:
       - ollama
     restart: unless-stopped
 
+  soc-agent-cloud:
+    profiles: [cloud]
+    build: ./soc-agent
+    container_name: soc-agent
+    network_mode: host
+    environment:
+      - LLM_MODE=cloud
+      - CLOUD_PROVIDER=${CLOUD_PROVIDER:-openai}
+      - CLOUD_MODEL=${CLOUD_MODEL:-gpt-4o}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - SPLUNK_HOST=${SPLUNK_HOST}
+      - SPLUNK_PORT=${SPLUNK_PORT:-8089}
+      - SPLUNK_TOKEN=${SPLUNK_TOKEN}
+      - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL:-false}
+      - DB_PATH=${DB_PATH:-/app/data/cases.db}
+      - MONITOR_ENABLED=${MONITOR_ENABLED:-false}
+      - MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-60}
+      - MONITOR_COOLDOWN_MINUTES=${MONITOR_COOLDOWN_MINUTES:-5}
+      - ABUSEIPDB_API_KEY=${ABUSEIPDB_API_KEY:-}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  # ── web-backend (both modes) ──────────────────────────────────────────
   web-backend:
+    profiles: [local, cloud]
     build: ./web-backend
     container_name: web-backend
     network_mode: host
@@ -42,7 +73,9 @@ services:
       - SOC_AGENT_URL=http://localhost:8000
     restart: unless-stopped
 
+  # ── web-frontend (both modes) ─────────────────────────────────────────
   web-frontend:
+    profiles: [local, cloud]
     build:
       context: ./web-frontend
       args:

@@ -1,7 +1,8 @@
 import json
 import asyncio
 from typing import AsyncGenerator
-from agent import ollama_chat, route_alert
+from agent import route_alert
+from llm_client import chat, get_reasoner_model
 from splunk_mcp import run_query
 from report import generate_ir_report
 from database import save_report, correlate
@@ -9,8 +10,6 @@ from blast_radius import estimate_blast_radius
 from threat_intel import enrich_ips
 import os
 
-REASONER_MODEL = os.getenv("REASONER_MODEL", "qwen3:14b")
-ROUTER_MODEL = os.getenv("ROUTER_MODEL", "qwen3:1.7b")
 MAX_INVESTIGATION_DEPTH = 5
 
 
@@ -26,10 +25,7 @@ async def stream_investigation(alert: dict) -> AsyncGenerator[str, None]:
     yield sse_event("classification", classification)
 
     if not classification.get("should_investigate"):
-        yield sse_event("complete", {
-            "status": "skipped",
-            "reason": classification.get("reason"),
-        })
+        yield sse_event("complete", {"status": "skipped", "reason": classification.get("reason")})
         return
 
     yield sse_event("status", {"stage": "investigating", "message": "Starting investigation loop..."})
@@ -40,10 +36,7 @@ async def stream_investigation(alert: dict) -> AsyncGenerator[str, None]:
         latest=alert.get("latest", "now"),
     )
 
-    yield sse_event("status", {
-        "stage": "investigating",
-        "message": f"Initial query returned {len(initial_context)} events",
-    })
+    yield sse_event("status", {"stage": "investigating", "message": f"Initial query returned {len(initial_context)} events"})
 
     findings = []
     queries_run = []
@@ -84,12 +77,9 @@ Begin investigation.""",
     ]
 
     while depth < MAX_INVESTIGATION_DEPTH:
-        yield sse_event("status", {
-            "stage": "investigating",
-            "message": f"Investigation step {depth + 1}/{MAX_INVESTIGATION_DEPTH}...",
-        })
+        yield sse_event("status", {"stage": "investigating", "message": f"Investigation step {depth + 1}/{MAX_INVESTIGATION_DEPTH}..."})
 
-        result = await ollama_chat(REASONER_MODEL, messages)
+        result = await chat(get_reasoner_model(), messages)
         text = result["message"]["content"].strip()
 
         if "<think>" in text:
@@ -123,29 +113,17 @@ Begin investigation.""",
 
         next_spl = step["next_spl"]
         if not next_spl.strip().startswith("index="):
-            messages.append({
-                "role": "user",
-                "content": "Invalid SPL query. Your next_spl must start with 'index='. Try again.",
-            })
+            messages.append({"role": "user", "content": "Invalid SPL query. Your next_spl must start with 'index='. Try again."})
             depth += 1
             continue
 
         queries_run.append(next_spl)
         yield sse_event("query", {"spl": next_spl, "depth": depth})
 
-        query_results = await run_query(
-            next_spl,
-            earliest=alert.get("earliest", "-1h"),
-            latest=alert.get("latest", "now"),
-        )
-
+        query_results = await run_query(next_spl, earliest=alert.get("earliest", "-1h"), latest=alert.get("latest", "now"))
         yield sse_event("query_result", {"spl": next_spl, "count": len(query_results)})
 
-        messages.append({
-            "role": "user",
-            "content": f"Query results ({len(query_results)} events): {json.dumps(query_results[:10])}. Continue investigation.",
-        })
-
+        messages.append({"role": "user", "content": f"Query results ({len(query_results)} events): {json.dumps(query_results[:10])}. Continue investigation."})
         depth += 1
 
     investigation = {
@@ -176,7 +154,7 @@ Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
   "confidence_adjustment": -0.2 to 0.0
 }}"""
 
-    adv_result = await ollama_chat(REASONER_MODEL, [{"role": "user", "content": adv_prompt}])
+    adv_result = await chat(get_reasoner_model(), [{"role": "user", "content": adv_prompt}])
     adv_text = adv_result["message"]["content"].strip()
 
     if "<think>" in adv_text:
@@ -193,12 +171,7 @@ Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
     try:
         review = json.loads(adv_text)
     except json.JSONDecodeError:
-        review = {
-            "verdict": "approved",
-            "critique": "Review parsing failed",
-            "missed_pivots": [],
-            "confidence_adjustment": 0.0,
-        }
+        review = {"verdict": "approved", "critique": "Review parsing failed", "missed_pivots": [], "confidence_adjustment": 0.0}
 
     yield sse_event("review", review)
 
@@ -209,18 +182,11 @@ Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
             if not spl.strip().startswith("index="):
                 continue
             results = await run_query(spl, earliest=alert.get("earliest", "-1h"))
-            extra_findings.append({
-                "spl": spl,
-                "result_count": len(results),
-                "sample": results[:3] if results else [],
-            })
+            extra_findings.append({"spl": spl, "result_count": len(results), "sample": results[:3] if results else []})
             yield sse_event("query_result", {"spl": spl, "count": len(results)})
         investigation["extra_findings"] = extra_findings
 
-    final_confidence = max(
-        0.0,
-        investigation["avg_confidence"] + review.get("confidence_adjustment", 0.0),
-    )
+    final_confidence = max(0.0, investigation["avg_confidence"] + review.get("confidence_adjustment", 0.0))
 
     triage_result = {
         "status": "complete",
@@ -236,7 +202,6 @@ Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
     yield sse_event("status", {"stage": "threat_intel", "message": "Enriching attacker IPs with threat intelligence..."})
     attacker_ips = blast.get("attacker_ips", [])
     threat_intel = await enrich_ips(attacker_ips) if attacker_ips else {}
-    report_threat_intel = threat_intel
     if threat_intel:
         yield sse_event("threat_intel", threat_intel)
 
@@ -246,7 +211,7 @@ Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
     yield sse_event("status", {"stage": "generating_report", "message": "Generating IR report..."})
     report = generate_ir_report(alert, triage_result)
     report["blast_radius"] = blast
-    report["threat_intel"] = report_threat_intel
+    report["threat_intel"] = threat_intel
     report["prior_cases"] = prior_cases
     report["repeated_attacker"] = len(prior_cases) > 0
 

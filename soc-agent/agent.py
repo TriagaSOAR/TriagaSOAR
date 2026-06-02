@@ -1,33 +1,18 @@
 import json
-import httpx
 import os
 from splunk_mcp import run_query
-
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-REASONER_MODEL = os.getenv("REASONER_MODEL", "qwen3:14b")
-ROUTER_MODEL = os.getenv("ROUTER_MODEL", "qwen3:1.7b")
+from llm_client import chat, get_reasoner_model, get_router_model
 
 MAX_INVESTIGATION_DEPTH = 5
 
 
 async def ollama_chat(model: str, messages: list, tools: list = None) -> dict:
-    payload = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-        "think": False,
-    }
-    if tools:
-        payload["tools"] = tools
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(f"{OLLAMA_HOST}/api/chat", json=payload)
-        response.raise_for_status()
-        return response.json()
+    """Backwards-compatible wrapper — delegates to llm_client."""
+    return await chat(model, messages)
 
 
 async def route_alert(alert: dict) -> dict:
-    """Use the small model to classify severity and alert type."""
+    """Use the small/router model to classify severity and alert type."""
     prompt = f"""You are a security alert classifier. Analyze this alert and respond with JSON only.
 
 Alert: {json.dumps(alert)}
@@ -40,11 +25,16 @@ Respond with exactly this JSON structure:
   "reason": "one sentence explanation"
 }}"""
 
-    result = await ollama_chat(ROUTER_MODEL, [{"role": "user", "content": prompt}])
+    result = await chat(get_router_model(), [{"role": "user", "content": prompt}])
     text = result["message"]["content"].strip()
 
     if "<think>" in text:
         text = text[text.rfind("</think>") + 8:].strip()
+
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start != -1 and end > start:
+        text = text[start:end]
 
     try:
         return json.loads(text)
@@ -105,11 +95,19 @@ Begin investigation.""",
     ]
 
     while depth < MAX_INVESTIGATION_DEPTH:
-        result = await ollama_chat(REASONER_MODEL, messages)
+        result = await chat(get_reasoner_model(), messages)
         text = result["message"]["content"].strip()
 
         if "<think>" in text:
             text = text[text.rfind("</think>") + 8:].strip()
+        if "```" in text:
+            lines = text.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            text = "\n".join(lines).strip()
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start != -1 and end > start:
+            text = text[start:end]
 
         try:
             step = json.loads(text)
@@ -129,8 +127,6 @@ Begin investigation.""",
             break
 
         next_spl = step["next_spl"]
-
-        # Sanity check — skip if it doesn't look like SPL
         if not next_spl.strip().startswith("index="):
             messages.append({
                 "role": "user",
@@ -173,9 +169,7 @@ Queries run: {json.dumps(investigation["queries_run"])}
 Available index: {index}
 Sourcetype: linux_secure (raw syslog — fields like src_ip, user, status are NOT extracted)
 All suggested SPL queries must use index={index}.
-Search raw text using quotes: index={index} "search term" rather than field=value syntax.
-Example good query: index=main "Failed password" "10.10.10.99"
-Example bad query: index=main src_ip=10.10.10.99 status=failed
+Search raw text using quotes.
 
 Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
 {{
@@ -185,11 +179,15 @@ Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
   "confidence_adjustment": -0.2 to 0.0
 }}"""
 
-    result = await ollama_chat(REASONER_MODEL, [{"role": "user", "content": prompt}])
+    result = await chat(get_reasoner_model(), [{"role": "user", "content": prompt}])
     text = result["message"]["content"].strip()
 
     if "<think>" in text:
         text = text[text.rfind("</think>") + 8:].strip()
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start != -1 and end > start:
+        text = text[start:end]
 
     try:
         return json.loads(text)
@@ -204,7 +202,6 @@ Identify gaps, weak assumptions, or missed pivot points. Respond with JSON:
 
 async def triage(alert: dict) -> dict:
     """Full triage pipeline: route → investigate → adversarial review."""
-
     classification = await route_alert(alert)
 
     if not classification.get("should_investigate"):
@@ -214,13 +211,12 @@ async def triage(alert: dict) -> dict:
             "classification": classification,
         }
 
-    investigation = await investigate(alert, classification)
-    review = await adversarial_review(alert, investigation)
+    investigation_result = await investigate(alert, classification)
+    review = await adversarial_review(alert, investigation_result)
 
     if review["verdict"] == "needs_reinvestigation" and review.get("missed_pivots"):
         extra_findings = []
         for spl in review["missed_pivots"][:2]:
-            # Sanity check missed pivots too
             if not spl.strip().startswith("index="):
                 continue
             results = await run_query(spl, earliest=alert.get("earliest", "-1h"))
@@ -229,17 +225,17 @@ async def triage(alert: dict) -> dict:
                 "result_count": len(results),
                 "sample": results[:3] if results else [],
             })
-        investigation["extra_findings"] = extra_findings
+        investigation_result["extra_findings"] = extra_findings
 
     final_confidence = max(
         0.0,
-        investigation["avg_confidence"] + review.get("confidence_adjustment", 0.0),
+        investigation_result["avg_confidence"] + review.get("confidence_adjustment", 0.0),
     )
 
     return {
         "status": "complete",
         "classification": classification,
-        "investigation": investigation,
+        "investigation": investigation_result,
         "review": review,
         "final_confidence": final_confidence,
     }
