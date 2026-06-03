@@ -5,3 +5,7 @@ __pycache__
 data/
 *.db
 *.sqlite
+.git
+*.md
+tests/
+.pytest_cache
