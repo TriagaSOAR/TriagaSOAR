@@ -1,5 +1,4 @@
 services:
-
   # ── Local mode: Ollama on GPU ──────────────────────────────────────────
   ollama:
     profiles: [local]
@@ -34,11 +33,21 @@ services:
       - MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-60}
       - MONITOR_COOLDOWN_MINUTES=${MONITOR_COOLDOWN_MINUTES:-5}
       - ABUSEIPDB_API_KEY=${ABUSEIPDB_API_KEY:-}
+      - ENTRA_TENANT_ID=${ENTRA_TENANT_ID:-}
+      - ENTRA_CLIENT_ID=${ENTRA_CLIENT_ID:-}
+      - ENTRA_CLIENT_SECRET=${ENTRA_CLIENT_SECRET:-}
     volumes:
       - ./data:/app/data
     depends_on:
-      - ollama
+      ollama:
+        condition: service_started
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   soc-agent-cloud:
     profiles: [cloud]
@@ -64,6 +73,12 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ── web-backend (both modes) ──────────────────────────────────────────
   web-backend:
@@ -74,6 +89,12 @@ services:
     environment:
       - SOC_AGENT_URL=http://localhost:8000
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   # ── web-frontend (both modes) ─────────────────────────────────────────
   web-frontend:
@@ -85,6 +106,12 @@ services:
     container_name: web-frontend
     network_mode: host
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4321/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   ollama_data:
