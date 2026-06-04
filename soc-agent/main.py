@@ -6,6 +6,7 @@ import os
 import json
 import tempfile
 import httpx
+from datetime import datetime, timezone
 from splunk_mcp import run_query, call_tool
 from agent import triage, ollama_chat
 from report import generate_ir_report
@@ -369,23 +370,28 @@ async def create_saved_search(body: dict):
     if not name or not spl:
         raise HTTPException(status_code=400, detail="name and spl are required")
 
+    # Append timestamp to avoid duplicate name conflicts
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    unique_name = f"{name} [{ts}]"
+
     splunk_host = os.getenv("SPLUNK_HOST", "localhost")
     splunk_port = os.getenv("SPLUNK_PORT", "8089")
-    splunk_token = os.getenv("SPLUNK_TOKEN", "")
+    splunk_token = os.getenv("SPLUNK_WRITE_TOKEN") or os.getenv("SPLUNK_TOKEN", "")
 
     try:
         async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
             response = await client.post(
                 f"https://{splunk_host}:{splunk_port}/servicesNS/nobody/search/saved/searches",
                 headers={"Authorization": f"Bearer {splunk_token}"},
-                data={"name": name, "search": spl, "description": description},
+                data={"name": unique_name, "search": spl, "description": description},
             )
             if response.status_code not in (200, 201):
+                print(f"[saved-search] Splunk error {response.status_code}: {response.text[:500]}")
                 raise HTTPException(
                     status_code=502,
-                    detail=f"Splunk returned {response.status_code}: {response.text[:200]}"
+                    detail=f"Splunk returned {response.status_code}: {response.text[:300]}"
                 )
-            return {"status": "created", "name": name}
+            return {"status": "created", "name": unique_name}
     except HTTPException:
         raise
     except Exception as e:

@@ -94,7 +94,11 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
     setSavingSearch(true);
     try {
       const techniques = report.mitre_techniques.map((t) => t.technique_id).join(", ");
-      const spl = `index=${report.alert.index} ${report.alert.title.toLowerCase().replace(/\s+/g, " ")} | head 100`;
+      // Use the first real SPL query the agent ran — guaranteed valid
+      const queries = report.queries_run ?? [];
+      const spl = queries.length > 0
+        ? queries[0]
+        : `index=${report.alert.index} | head 100`;
       const res = await fetch(`${apiUrl}/splunk/saved-searches`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -105,7 +109,8 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
         }),
       });
       if (res.ok) {
-        setSavedSearch(`[SOC Triage] ${report.alert.title}`);
+        const data = await res.json();
+        setSavedSearch(data.name ?? `[SOC Triage] ${report.alert.title}`);
       }
     } finally {
       setSavingSearch(false);
@@ -222,7 +227,7 @@ export default function CaseDetail({ reportId, apiUrl }: Props) {
                 fontSize: 12, fontFamily: "Geist Mono", padding: "4px 12px",
                 border: `1px solid ${verdict === "false_positive" ? "rgba(120,120,120,0.5)" : "var(--border)"}`,
                 borderRadius: 4, background: verdict === "false_positive" ? "rgba(120,120,120,0.1)" : "transparent",
-                color: verdict === "false_positive" ? "var(--text-muted)" : "var(--text-muted)",
+                color: "var(--text-muted)",
                 cursor: verdictLoading ? "not-allowed" : "pointer", transition: "all 0.15s",
               }}
             >✗ False Positive</button>

@@ -27,6 +27,7 @@ services:
       - SPLUNK_HOST=${SPLUNK_HOST}
       - SPLUNK_PORT=${SPLUNK_PORT:-8089}
       - SPLUNK_TOKEN=${SPLUNK_TOKEN}
+      - SPLUNK_WRITE_TOKEN=${SPLUNK_WRITE_TOKEN:-}
       - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL:-false}
       - DB_PATH=${DB_PATH:-/app/data/cases.db}
       - MONITOR_ENABLED=${MONITOR_ENABLED:-false}
@@ -53,6 +54,7 @@ services:
       - SPLUNK_HOST=${SPLUNK_HOST}
       - SPLUNK_PORT=${SPLUNK_PORT:-8089}
       - SPLUNK_TOKEN=${SPLUNK_TOKEN}
+      - SPLUNK_WRITE_TOKEN=${SPLUNK_WRITE_TOKEN:-}
       - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL:-false}
       - DB_PATH=${DB_PATH:-/app/data/cases.db}
       - MONITOR_ENABLED=${MONITOR_ENABLED:-false}
