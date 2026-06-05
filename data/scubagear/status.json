@@ -1,0 +1,5 @@
+{
+  "error": "The 'Invoke-SCuBA' command was found in the module 'ScubaGear', but the module could not be loaded due to the following error: [Error checking ScubaGear version: Cannot convert the \"Linux-Container\" value of type \"System.String\" to type \"System.Security.Principal.WindowsPrincipal\".]\nFor more information, run 'Import-Module ScubaGear'.",
+  "status": "error",
+  "last_run": "2026-06-05T22:00:06.5792921+00:00"
+}

@@ -2,3 +2,6 @@
 web-backend/target
 data/*.db
 data/*.sqlite
+data/maester/*
+
+integrations/scubagear/certs/*

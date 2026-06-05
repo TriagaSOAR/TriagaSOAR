@@ -7,54 +7,197 @@ const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
 ---
 <!doctype html>
 <html lang="en" data-theme="dark">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{title} — SOC Triage</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;500;600&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="/styles/global.css" />
-  </head>
-  <body>
-    <nav class="navbar">
-      <div class="nav-left">
-        <span class="nav-logo">⬡ SOC TRIAGE</span>
-        <span class="nav-version">v0.1.0</span>
-      </div>
-      <div class="nav-links">
-        <a href="/dashboard" class="nav-link">Dashboard</a>
-        <a href="/" class="nav-link">Cases</a>
-        <a href="/timeline" class="nav-link">Timeline</a>
-        <a href="/patterns" class="nav-link">Patterns</a>
-        <a href="/search" class="nav-link">Search</a>
-        <a href="/health" class="nav-link">Health</a>
-        <a href="/entra" class="nav-link">Entra</a>
-        <a href="/compare" class="nav-link">Compare</a>
-        <a href="/investigate" class="nav-link">Investigate</a>
-      </div>
-      <div class="nav-right">
-        <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">
-          <span class="theme-icon">◐</span>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} — SOC Triage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/styles/global.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-left">
+      <span class="nav-logo">⬡ SOC TRIAGE</span>
+      <span class="nav-version">v0.1.0</span>
+    </div>
+    <div class="nav-links">
+      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="/" class="nav-link">Cases</a>
+      <a href="/timeline" class="nav-link">Timeline</a>
+      <a href="/patterns" class="nav-link">Patterns</a>
+      <a href="/search" class="nav-link">Search</a>
+      <a href="/health" class="nav-link">Health</a>
+      <a href="/compare" class="nav-link">Compare</a>
+      <a href="/investigate" class="nav-link">Investigate</a>
+
+      <!-- Integrations dropdown -->
+      <div class="nav-dropdown" id="integrations-dropdown">
+        <button class="nav-link nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false">
+          Integrations <span class="dropdown-arrow">▾</span>
         </button>
+        <div class="nav-dropdown-menu" role="menu">
+          <div class="dropdown-section-label">Identity</div>
+          <a href="/entra" class="dropdown-item" role="menuitem">
+            <span class="dropdown-icon">⬡</span>
+            Microsoft Entra ID
+          </a>
+          <a href="/maester" class="dropdown-item" role="menuitem">
+            <span class="dropdown-icon">✦</span>
+            Maester
+          </a>
+          <div class="dropdown-divider"></div>
+          <div class="dropdown-section-label">Coming soon</div>
+          <span class="dropdown-item dropdown-item--disabled">
+            <span class="dropdown-icon">◈</span>
+            Okta
+          </span>
+          <span class="dropdown-item dropdown-item--disabled">
+            <span class="dropdown-icon">◈</span>
+            Wazuh
+          </span>
+          <span class="dropdown-item dropdown-item--disabled">
+            <span class="dropdown-icon">◈</span>
+            Velociraptor
+          </span>
+        </div>
       </div>
-    </nav>
-    <main class="main-content">
-      <slot />
-    </main>
-  </body>
-  <script>
-    const root = document.documentElement;
-    const btn = document.getElementById("theme-toggle");
-    const saved = localStorage.getItem("theme") ?? "dark";
-    root.setAttribute("data-theme", saved);
-    btn?.addEventListener("click", () => {
-      const current = root.getAttribute("data-theme");
-      const next = current === "dark" ? "light" : "dark";
-      root.setAttribute("data-theme", next);
-      localStorage.setItem("theme", next);
-    });
-  </script>
+    </div>
+    <div class="nav-right">
+      <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">
+        <span class="theme-icon">◐</span>
+      </button>
+    </div>
+  </nav>
+  <main class="main-content">
+    <slot />
+  </main>
+</body>
+<script>
+  const root = document.documentElement;
+  const btn = document.getElementById("theme-toggle");
+  const saved = localStorage.getItem("theme") ?? "dark";
+  root.setAttribute("data-theme", saved);
+  btn?.addEventListener("click", () => {
+    const current = root.getAttribute("data-theme");
+    const next = current === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    localStorage.setItem("theme", next);
+  });
+
+  // Dropdown toggle
+  const dropdown = document.getElementById("integrations-dropdown");
+  const trigger = dropdown?.querySelector(".nav-dropdown-trigger");
+  const menu = dropdown?.querySelector(".nav-dropdown-menu");
+
+  trigger?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const expanded = trigger.getAttribute("aria-expanded") === "true";
+    trigger.setAttribute("aria-expanded", String(!expanded));
+    menu?.classList.toggle("open", !expanded);
+  });
+
+  // Close on outside click
+  document.addEventListener("click", () => {
+    trigger?.setAttribute("aria-expanded", "false");
+    menu?.classList.remove("open");
+  });
+
+  // Prevent menu clicks from closing
+  menu?.addEventListener("click", (e) => e.stopPropagation());
+</script>
+<style>
+  .nav-dropdown {
+    position: relative;
+  }
+
+  .nav-dropdown-trigger {
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .dropdown-arrow {
+    font-size: 10px;
+    transition: transform 0.15s ease;
+  }
+
+  .nav-dropdown-trigger[aria-expanded="true"] .dropdown-arrow {
+    transform: rotate(180deg);
+  }
+
+  .nav-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 200px;
+    background: var(--bg-card, #13131e);
+    border: 1px solid var(--border, #2a2a3a);
+    border-radius: 8px;
+    padding: 6px;
+    z-index: 100;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+
+  .nav-dropdown-menu.open {
+    display: block;
+  }
+
+  .dropdown-section-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #555;
+    padding: 6px 10px 4px;
+    font-family: 'Geist Mono', monospace;
+  }
+
+  .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text, #e0e0f0);
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .dropdown-item:hover:not(.dropdown-item--disabled) {
+    background: var(--bg-hover, #1e1e2e);
+  }
+
+  .dropdown-item--disabled {
+    color: #444;
+    cursor: default;
+  }
+
+  .dropdown-icon {
+    font-size: 12px;
+    color: #7b61ff;
+    width: 16px;
+    text-align: center;
+  }
+
+  .dropdown-item--disabled .dropdown-icon {
+    color: #333;
+  }
+
+  .dropdown-divider {
+    height: 1px;
+    background: var(--border, #2a2a3a);
+    margin: 6px 4px;
+  }
+</style>
 </html>

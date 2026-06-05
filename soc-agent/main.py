@@ -707,3 +707,172 @@ async def entra_action_log():
         return {"actions": [dict(r) for r in rows]}
     finally:
         conn.close()
+
+
+# ── Maester endpoints ─────────────────────────────────────────────────────────
+
+MAESTER_OUTPUT_DIR = os.getenv("MAESTER_OUTPUT_DIR", "/app/data/maester")
+
+
+def _read_maester_latest() -> dict | None:
+    path = os.path.join(MAESTER_OUTPUT_DIR, "latest.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def _read_maester_status() -> dict | None:
+    path = os.path.join(MAESTER_OUTPUT_DIR, "status.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+@app.get("/maester/status")
+async def maester_status():
+    status = _read_maester_status()
+    if not status:
+        return {"available": False, "message": "No Maester output found. Run the maester container."}
+    report = _read_maester_latest()
+    if not report:
+        return {"available": False, "status": status}
+    return {
+        "available": True,
+        "last_run": status.get("last_run"),
+        "run_status": status.get("status"),
+        "result": report.get("Result"),
+        "tenant_name": report.get("TenantName"),
+        "tenant_id": report.get("TenantId"),
+        "total": report.get("TotalCount", 0),
+        "passed": report.get("PassedCount", 0),
+        "failed": report.get("FailedCount", 0),
+        "skipped": report.get("SkippedCount", 0),
+        "errors": report.get("ErrorCount", 0),
+        "total_duration": report.get("TotalDuration"),
+        "executed_at": report.get("ExecutedAt"),
+        "maester_version": report.get("CurrentVersion", {}).get("Major", "?"),
+    }
+
+
+@app.get("/maester/tests")
+async def maester_tests(
+    result: str = None,
+    severity: str = None,
+    block: str = None,
+    search: str = None,
+):
+    report = _read_maester_latest()
+    if not report:
+        raise HTTPException(status_code=404, detail="No Maester report found")
+
+    tests = report.get("Tests", [])
+
+    if result:
+        tests = [t for t in tests if t.get("Result", "").lower() == result.lower()]
+    if severity:
+        tests = [t for t in tests if t.get("Severity", "").lower() == severity.lower()]
+    if block:
+        tests = [t for t in tests if t.get("Block", "").lower() == block.lower()]
+    if search:
+        s = search.lower()
+        tests = [t for t in tests if s in t.get("Title", "").lower() or s in t.get("Id", "").lower()]
+
+    return {
+        "count": len(tests),
+        "tests": [
+            {
+                "id": t.get("Id"),
+                "title": t.get("Title"),
+                "result": t.get("Result"),
+                "severity": t.get("Severity"),
+                "block": t.get("Block"),
+                "duration": t.get("Duration"),
+                "tags": t.get("Tag", []),
+                "help_url": t.get("HelpUrl"),
+                "test_result": (t.get("ResultDetail") or {}).get("TestResult"),
+                "description": (t.get("ResultDetail") or {}).get("TestDescription", "")[:500],
+                "skipped_reason": (t.get("ResultDetail") or {}).get("SkippedReason"),
+                "error": t.get("ErrorRecord", []),
+            }
+            for t in tests
+        ],
+    }
+
+
+@app.get("/maester/tests/{test_id}")
+async def maester_test_detail(test_id: str):
+    report = _read_maester_latest()
+    if not report:
+        raise HTTPException(status_code=404, detail="No Maester report found")
+
+    test = next((t for t in report.get("Tests", []) if t.get("Id") == test_id), None)
+    if not test:
+        raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
+
+    return {
+        "id": test.get("Id"),
+        "title": test.get("Title"),
+        "result": test.get("Result"),
+        "severity": test.get("Severity"),
+        "block": test.get("Block"),
+        "duration": test.get("Duration"),
+        "tags": test.get("Tag", []),
+        "help_url": test.get("HelpUrl"),
+        "script_block_file": test.get("ScriptBlockFile"),
+        "test_result": test.get("ResultDetail", {}).get("TestResult"),
+        "description": test.get("ResultDetail", {}).get("TestDescription"),
+        "skipped_reason": test.get("ResultDetail", {}).get("SkippedReason"),
+        "error": test.get("ErrorRecord", []),
+    }
+
+
+@app.get("/maester/summary")
+async def maester_summary():
+    report = _read_maester_latest()
+    if not report:
+        raise HTTPException(status_code=404, detail="No Maester report found")
+
+    tests = report.get("Tests", [])
+
+    by_block = {}
+    by_severity = {}
+    failed_high = []
+
+    for t in tests:
+        block = t.get("Block", "Unknown")
+        result = t.get("Result", "Unknown")
+        severity = t.get("Severity", "Unknown")
+
+        if block not in by_block:
+            by_block[block] = {"passed": 0, "failed": 0, "skipped": 0, "error": 0}
+        if result == "Passed":
+            by_block[block]["passed"] += 1
+        elif result == "Failed":
+            by_block[block]["failed"] += 1
+        elif result == "Skipped":
+            by_block[block]["skipped"] += 1
+        else:
+            by_block[block]["error"] += 1
+
+        if severity not in by_severity:
+            by_severity[severity] = {"passed": 0, "failed": 0}
+        if result == "Passed":
+            by_severity[severity]["passed"] += 1
+        elif result == "Failed":
+            by_severity[severity]["failed"] += 1
+
+        if result == "Failed" and severity in ("High", "Critical"):
+            failed_high.append({
+                "id": t.get("Id"),
+                "title": t.get("Title"),
+                "severity": severity,
+                "block": block,
+            })
+
+    return {
+        "by_block": by_block,
+        "by_severity": by_severity,
+        "failed_high_severity": failed_high[:20],
+    }

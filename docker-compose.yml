@@ -29,6 +29,7 @@ services:
       - SPLUNK_WRITE_TOKEN=${SPLUNK_WRITE_TOKEN:-}
       - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL:-false}
       - DB_PATH=${DB_PATH:-/app/data/cases.db}
+      - MAESTER_OUTPUT_DIR=/app/data/maester
       - MONITOR_ENABLED=${MONITOR_ENABLED:-false}
       - MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-60}
       - MONITOR_COOLDOWN_MINUTES=${MONITOR_COOLDOWN_MINUTES:-5}
@@ -112,6 +113,39 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # ── Maester (optional — Microsoft 365 security checks) ───────────────────────
+  maester:
+    profiles: [maester]
+    build: ./integrations/maester
+    container_name: maester
+    network_mode: host
+    environment:
+      - MAESTER_TENANT_ID=${MAESTER_TENANT_ID:-}
+      - MAESTER_CLIENT_ID=${MAESTER_CLIENT_ID:-}
+      - MAESTER_CLIENT_SECRET=${MAESTER_CLIENT_SECRET:-}
+      - MAESTER_INTERVAL_MINUTES=${MAESTER_INTERVAL_MINUTES:-60}
+      - MAESTER_OUTPUT_DIR=/app/output
+    volumes:
+      - ./data/maester:/app/output
+    restart: unless-stopped
+  # ── ScubaGear (optional — CISA SCuBA M365 baseline checks) ──────────────────
+  scubagear:
+    profiles: [scubagear]
+    build: ./integrations/scubagear
+    container_name: scubagear
+    network_mode: host
+    environment:
+      - SCUBAGEAR_TENANT_ID=${SCUBAGEAR_TENANT_ID:-}
+      - SCUBAGEAR_CLIENT_ID=${SCUBAGEAR_CLIENT_ID:-}
+      - SCUBAGEAR_CERT_THUMBPRINT=${SCUBAGEAR_CERT_THUMBPRINT:-}
+      - SCUBAGEAR_ORGANIZATION=${SCUBAGEAR_ORGANIZATION:-}
+      - SCUBAGEAR_INTERVAL_MINUTES=${SCUBAGEAR_INTERVAL_MINUTES:-60}
+      - SCUBAGEAR_OUTPUT_DIR=/app/output
+    volumes:
+      - ./data/scubagear:/app/output
+      - ./integrations/scubagear/certs:/app/certs:ro
+    restart: unless-stopped
 
 volumes:
   ollama_data:
