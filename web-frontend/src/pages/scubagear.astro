@@ -1,0 +1,19 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import ScubaGearPanel from "../components/ScubaGearPanel";
+---
+
+<BaseLayout title="ScubaGear">
+  <div style="max-width: 1100px; margin: 0 auto; padding: 32px 24px;">
+    <div style="margin-bottom: 28px;">
+      <div style="font-family: monospace; font-size: 11px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.08em;">
+        CISA SCuBA Baseline
+      </div>
+      <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 6px 0;">ScubaGear</h1>
+      <p style="color: #888; margin: 0; font-size: 14px;">
+        CISA Secure Cloud Business Applications (SCuBA) M365 baseline assessment — AAD product.
+      </p>
+    </div>
+    <ScubaGearPanel client:load />
+  </div>
+</BaseLayout>

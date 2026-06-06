@@ -37,6 +37,8 @@ services:
       - ENTRA_TENANT_ID=${ENTRA_TENANT_ID:-}
       - ENTRA_CLIENT_ID=${ENTRA_CLIENT_ID:-}
       - ENTRA_CLIENT_SECRET=${ENTRA_CLIENT_SECRET:-}
+      - OKTA_DOMAIN=${OKTA_DOMAIN:-}
+      - OKTA_API_TOKEN=${OKTA_API_TOKEN:-}
     volumes:
       - ./data:/app/data
     depends_on:

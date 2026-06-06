@@ -876,3 +876,262 @@ async def maester_summary():
         "by_severity": by_severity,
         "failed_high_severity": failed_high[:20],
     }
+
+# ── ScubaGear endpoints ───────────────────────────────────────────────────────
+
+SCUBAGEAR_OUTPUT_DIR = os.getenv("SCUBAGEAR_OUTPUT_DIR", "/app/data/scubagear")
+
+
+def _read_scubagear_latest() -> dict | None:
+    path = os.path.join(SCUBAGEAR_OUTPUT_DIR, "latest.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def _read_scubagear_status() -> dict | None:
+    path = os.path.join(SCUBAGEAR_OUTPUT_DIR, "status.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+@app.get("/scubagear/status")
+async def scubagear_status():
+    status = _read_scubagear_status()
+    if not status:
+        return {"available": False, "message": "No ScubaGear output found. Run the scubagear container."}
+    report = _read_scubagear_latest()
+    if not report:
+        return {"available": False, "status": status}
+
+    meta = report.get("MetaData", {})
+    summary = report.get("Summary", {})
+
+    total_pass = sum(v.get("Passes", 0) for v in summary.values())
+    total_fail = sum(v.get("Failures", 0) for v in summary.values())
+    total_warn = sum(v.get("Warnings", 0) for v in summary.values())
+    total_manual = sum(v.get("Manual", 0) for v in summary.values())
+    total_errors = sum(v.get("Errors", 0) for v in summary.values())
+    total = total_pass + total_fail + total_warn + total_manual + total_errors
+
+    return {
+        "available": True,
+        "last_run": status.get("last_run"),
+        "run_status": status.get("status"),
+        "tenant": meta.get("Tenant", {}).get("TenantName"),
+        "products": list(summary.keys()),
+        "summary": summary,
+        "total": total,
+        "passed": total_pass,
+        "failed": total_fail,
+        "warnings": total_warn,
+        "manual": total_manual,
+        "errors": total_errors,
+        "scubagear_version": meta.get("ScubaGearVersion"),
+        "executed_at": meta.get("ExecutedAt"),
+    }
+
+
+@app.get("/scubagear/results")
+async def scubagear_results(
+    product: str = None,
+    result: str = None,
+    search: str = None,
+):
+    report = _read_scubagear_latest()
+    if not report:
+        raise HTTPException(status_code=404, detail="No ScubaGear report found")
+
+    results = report.get("Results", {})
+    controls = []
+
+    for prod, groups in results.items():
+        if product and prod.lower() != product.lower():
+            continue
+        for group in groups:
+            group_name = group.get("GroupName")
+            group_number = group.get("GroupNumber")
+            group_url = group.get("GroupReferenceURL")
+            for ctrl in group.get("Controls", []):
+                controls.append({
+                    "product": prod,
+                    "group_name": group_name,
+                    "group_number": group_number,
+                    "group_url": group_url,
+                    "control_id": ctrl.get("Control ID"),
+                    "requirement": ctrl.get("Requirement"),
+                    "result": ctrl.get("Result"),
+                    "criticality": ctrl.get("Criticality"),
+                    "details": ctrl.get("Details"),
+                    "resolution_date": ctrl.get("ResolutionDate"),
+                })
+
+    if result:
+        controls = [c for c in controls if c.get("result", "").lower() == result.lower()]
+    if search:
+        s = search.lower()
+        controls = [c for c in controls if
+                    s in (c.get("control_id") or "").lower() or
+                    s in (c.get("requirement") or "").lower()]
+
+    return {"count": len(controls), "controls": controls}
+
+
+@app.get("/scubagear/summary")
+async def scubagear_summary():
+    report = _read_scubagear_latest()
+    if not report:
+        raise HTTPException(status_code=404, detail="No ScubaGear report found")
+
+    results = report.get("Results", {})
+    failed_shall = []
+
+    for prod, groups in results.items():
+        for group in groups:
+            for ctrl in group.get("Controls", []):
+                if ctrl.get("Result") == "Fail" and ctrl.get("Criticality") == "Shall":
+                    failed_shall.append({
+                        "product": prod,
+                        "control_id": ctrl.get("Control ID"),
+                        "requirement": ctrl.get("Requirement"),
+                        "details": ctrl.get("Details"),
+                        "group_name": group.get("GroupName"),
+                    })
+
+    return {
+        "by_product": report.get("Summary", {}),
+        "failed_shall": failed_shall[:20],
+    }
+
+# ── Okta endpoints ────────────────────────────────────────────────────────────
+# Add to imports: from okta import (okta_available, get_users, get_user, get_logs,
+#     get_failed_logins, get_suspicious_activity, suspend_user, unsuspend_user,
+#     deactivate_user, clear_user_sessions, enrich_user_from_okta)
+
+@app.get("/okta/health")
+async def okta_health():
+    from okta import okta_available, get_users
+    if not okta_available():
+        return {"available": False, "message": "OKTA_DOMAIN and OKTA_API_TOKEN not set"}
+    try:
+        await get_users(limit=1)
+        return {"available": True, "domain": os.getenv("OKTA_DOMAIN")}
+    except Exception as e:
+        return {"available": False, "message": str(e)}
+
+
+@app.get("/okta/users")
+async def okta_users(limit: int = 50, search: str = None):
+    from okta import okta_available, get_users
+    if not okta_available():
+        raise HTTPException(status_code=503, detail="Okta not configured")
+    users = await get_users(limit=limit, search=search)
+    return {"count": len(users), "users": [
+        {
+            "id": u.get("id"),
+            "login": u.get("profile", {}).get("login"),
+            "display_name": f"{u.get('profile', {}).get('firstName', '')} {u.get('profile', {}).get('lastName', '')}".strip(),
+            "email": u.get("profile", {}).get("email"),
+            "status": u.get("status"),
+            "created": u.get("created"),
+            "last_login": u.get("lastLogin"),
+            "dept": u.get("profile", {}).get("department"),
+            "title": u.get("profile", {}).get("title"),
+        }
+        for u in users
+    ]}
+
+
+@app.get("/okta/users/{user_id}")
+async def okta_user(user_id: str):
+    from okta import okta_available, enrich_user_from_okta
+    if not okta_available():
+        raise HTTPException(status_code=503, detail="Okta not configured")
+    return await enrich_user_from_okta(user_id)
+
+
+@app.get("/okta/logs")
+async def okta_logs(hours: int = 24, limit: int = 100):
+    from okta import okta_available, get_logs
+    if not okta_available():
+        raise HTTPException(status_code=503, detail="Okta not configured")
+    logs = await get_logs(hours=hours, limit=limit)
+    return {"count": len(logs), "logs": logs}
+
+
+@app.get("/okta/logs/failed")
+async def okta_failed_logins(hours: int = 24, limit: int = 50):
+    from okta import okta_available, get_failed_logins
+    if not okta_available():
+        raise HTTPException(status_code=503, detail="Okta not configured")
+    logs = await get_failed_logins(hours=hours, limit=limit)
+    return {"count": len(logs), "logs": logs}
+
+
+@app.get("/okta/logs/suspicious")
+async def okta_suspicious(hours: int = 48, limit: int = 50):
+    from okta import okta_available, get_suspicious_activity
+    if not okta_available():
+        raise HTTPException(status_code=503, detail="Okta not configured")
+    logs = await get_suspicious_activity(hours=hours, limit=limit)
+    return {"count": len(logs), "logs": logs}
+
+
+@app.post("/okta/actions/suspend")
+async def okta_suspend(body: dict):
+    from okta import okta_available, suspend_user
+    if not okta_available():
+        raise HTTPException(status_code=503, detail="Okta not configured")
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    result = await suspend_user(user_id)
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO response_actions (action, target, performed_at, details) VALUES (?,?,?,?)",
+        ("okta_suspend", user_id, datetime.now(timezone.utc).isoformat(), json.dumps(result))
+    )
+    conn.commit()
+    conn.close()
+    return result
+
+
+@app.post("/okta/actions/unsuspend")
+async def okta_unsuspend(body: dict):
+    from okta import okta_available, unsuspend_user
+    if not okta_available():
+        raise HTTPException(status_code=503, detail="Okta not configured")
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    result = await unsuspend_user(user_id)
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO response_actions (action, target, performed_at, details) VALUES (?,?,?,?)",
+        ("okta_unsuspend", user_id, datetime.now(timezone.utc).isoformat(), json.dumps(result))
+    )
+    conn.commit()
+    conn.close()
+    return result
+
+
+@app.post("/okta/actions/clear-sessions")
+async def okta_clear_sessions(body: dict):
+    from okta import okta_available, clear_user_sessions
+    if not okta_available():
+        raise HTTPException(status_code=503, detail="Okta not configured")
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    result = await clear_user_sessions(user_id)
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO response_actions (action, target, performed_at, details) VALUES (?,?,?,?)",
+        ("okta_clear_sessions", user_id, datetime.now(timezone.utc).isoformat(), json.dumps(result))
+    )
+    conn.commit()
+    conn.close()
+    return result
