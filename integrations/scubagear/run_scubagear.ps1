@@ -45,12 +45,18 @@ function Invoke-ScubaRun {
 
         Write-Host "[scubagear] Running Invoke-SCuBA..."
 
+        # Set USERPROFILE so ScubaGear resolves ~/.scubagear/Tools for OPA
+        $env:USERPROFILE = "/root"
+        $opaPath = "/root/.scubagear/Tools"
+
+        # Only aad — Teams/EXO cert auth broken on Linux X509Store
         Invoke-SCuBA `
-            -ProductNames aad, teams, exo `
+            -ProductNames aad `
             -CertificateThumbprint $thumbprint `
             -AppID $clientId `
             -Organization $org `
             -OutPath $reportPath `
+            -OPAPath $opaPath `
             -Quiet `
             -DisconnectOnExit
 
