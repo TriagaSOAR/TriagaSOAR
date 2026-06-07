@@ -1135,3 +1135,134 @@ async def okta_clear_sessions(body: dict):
     conn.commit()
     conn.close()
     return result
+
+# ── Auth0 endpoints ───────────────────────────────────────────────────────────
+# Add to imports: from auth0 import (auth0_available, get_users, get_user, get_logs,
+#     get_failed_logins, get_suspicious_logins, get_brute_force_config,
+#     get_suspicious_ip_config, get_breached_password_config,
+#     block_user, unblock_user, enrich_user_from_auth0)
+
+@app.get("/auth0/health")
+async def auth0_health():
+    from auth0 import auth0_available, get_token
+    if not auth0_available():
+        return {"available": False, "message": "AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET not set"}
+    try:
+        await get_token()
+        return {"available": True, "domain": os.getenv("AUTH0_DOMAIN")}
+    except Exception as e:
+        return {"available": False, "message": str(e)}
+
+
+@app.get("/auth0/users")
+async def auth0_users(per_page: int = 50, q: str = None):
+    from auth0 import auth0_available, get_users
+    if not auth0_available():
+        raise HTTPException(status_code=503, detail="Auth0 not configured")
+    users = await get_users(per_page=per_page, q=q)
+    return {"count": len(users), "users": [
+        {
+            "user_id": u.get("user_id"),
+            "email": u.get("email"),
+            "name": u.get("name"),
+            "blocked": u.get("blocked", False),
+            "email_verified": u.get("email_verified"),
+            "created_at": u.get("created_at"),
+            "last_login": u.get("last_login"),
+            "last_ip": u.get("last_ip"),
+            "logins_count": u.get("logins_count", 0),
+            "identities": [i.get("provider") for i in u.get("identities", [])],
+        }
+        for u in users
+    ]}
+
+
+@app.get("/auth0/users/{user_id:path}")
+async def auth0_user(user_id: str):
+    from auth0 import auth0_available, enrich_user_from_auth0
+    if not auth0_available():
+        raise HTTPException(status_code=503, detail="Auth0 not configured")
+    return await enrich_user_from_auth0(user_id)
+
+
+@app.get("/auth0/logs")
+async def auth0_logs(per_page: int = 100, q: str = None):
+    from auth0 import auth0_available, get_logs
+    if not auth0_available():
+        raise HTTPException(status_code=503, detail="Auth0 not configured")
+    logs = await get_logs(per_page=per_page, q=q)
+    return {"count": len(logs), "logs": logs}
+
+
+@app.get("/auth0/logs/failed")
+async def auth0_failed_logins(per_page: int = 50):
+    from auth0 import auth0_available, get_failed_logins
+    if not auth0_available():
+        raise HTTPException(status_code=503, detail="Auth0 not configured")
+    logs = await get_failed_logins(per_page=per_page)
+    return {"count": len(logs), "logs": logs}
+
+
+@app.get("/auth0/logs/suspicious")
+async def auth0_suspicious(per_page: int = 50):
+    from auth0 import auth0_available, get_suspicious_logins
+    if not auth0_available():
+        raise HTTPException(status_code=503, detail="Auth0 not configured")
+    logs = await get_suspicious_logins(per_page=per_page)
+    return {"count": len(logs), "logs": logs}
+
+
+@app.get("/auth0/attack-protection")
+async def auth0_attack_protection():
+    from auth0 import auth0_available, get_brute_force_config, get_suspicious_ip_config, get_breached_password_config
+    if not auth0_available():
+        raise HTTPException(status_code=503, detail="Auth0 not configured")
+    brute, suspicious, breached = await asyncio.gather(
+        get_brute_force_config(),
+        get_suspicious_ip_config(),
+        get_breached_password_config(),
+        return_exceptions=True,
+    )
+    return {
+        "brute_force": brute if not isinstance(brute, Exception) else {},
+        "suspicious_ip": suspicious if not isinstance(suspicious, Exception) else {},
+        "breached_password": breached if not isinstance(breached, Exception) else {},
+    }
+
+
+@app.post("/auth0/actions/block")
+async def auth0_block_user(body: dict):
+    from auth0 import auth0_available, block_user
+    if not auth0_available():
+        raise HTTPException(status_code=503, detail="Auth0 not configured")
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    result = await block_user(user_id)
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO response_actions (action, target, performed_at, details) VALUES (?,?,?,?)",
+        ("auth0_block", user_id, datetime.now(timezone.utc).isoformat(), json.dumps(result))
+    )
+    conn.commit()
+    conn.close()
+    return result
+
+
+@app.post("/auth0/actions/unblock")
+async def auth0_unblock_user(body: dict):
+    from auth0 import auth0_available, unblock_user
+    if not auth0_available():
+        raise HTTPException(status_code=503, detail="Auth0 not configured")
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    result = await unblock_user(user_id)
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO response_actions (action, target, performed_at, details) VALUES (?,?,?,?)",
+        ("auth0_unblock", user_id, datetime.now(timezone.utc).isoformat(), json.dumps(result))
+    )
+    conn.commit()
+    conn.close()
+    return result

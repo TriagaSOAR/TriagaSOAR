@@ -1,0 +1,19 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Auth0Panel from "../components/Auth0Panel";
+---
+
+<BaseLayout title="Auth0">
+  <div style="max-width: 1100px; margin: 0 auto; padding: 32px 24px;">
+    <div style="margin-bottom: 28px;">
+      <div style="font-family: monospace; font-size: 11px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.08em;">
+        Identity Intelligence
+      </div>
+      <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 6px 0;">Auth0</h1>
+      <p style="color: #888; margin: 0; font-size: 14px;">
+        User management, login logs, anomaly detection, and attack protection via Auth0 Management API.
+      </p>
+    </div>
+    <Auth0Panel client:load />
+  </div>
+</BaseLayout>
