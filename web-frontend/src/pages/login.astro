@@ -1,0 +1,401 @@
+---
+export const prerender = false;
+// web-frontend/src/pages/login.astro
+---
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login — SOC Triage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/styles/global.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg, #0d0d17);
+      font-family: 'Geist Mono', monospace;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(123, 97, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(123, 97, 255, 0.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+
+    /* Glow */
+    body::after {
+      content: '';
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -60%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(123, 97, 255, 0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .login-wrap {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 400px;
+      padding: 0 20px;
+      animation: fadeIn 0.4s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .login-header {
+      margin-bottom: 32px;
+    }
+
+    .login-logo {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      color: #7b61ff;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .login-logo-hex {
+      font-size: 18px;
+    }
+
+    .login-title {
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--text, #e0e0f0);
+      letter-spacing: -0.02em;
+    }
+
+    .login-subtitle {
+      font-size: 12px;
+      color: #555;
+      margin-top: 6px;
+    }
+
+    .login-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      padding: 28px;
+      backdrop-filter: blur(12px);
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    .field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #666;
+      margin-bottom: 7px;
+    }
+
+    .field input {
+      width: 100%;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 7px;
+      padding: 10px 13px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 13px;
+      color: var(--text, #e0e0f0);
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .field input:focus {
+      border-color: rgba(123, 97, 255, 0.5);
+      background: rgba(123, 97, 255, 0.04);
+    }
+
+    .field input::placeholder {
+      color: #444;
+    }
+
+    .totp-field {
+      display: none;
+    }
+
+    .totp-field.visible {
+      display: block;
+    }
+
+    .totp-hint {
+      font-size: 11px;
+      color: #555;
+      margin-top: 5px;
+    }
+
+    .error-msg {
+      display: none;
+      background: rgba(255, 80, 80, 0.08);
+      border: 1px solid rgba(255, 80, 80, 0.2);
+      border-radius: 7px;
+      padding: 10px 13px;
+      font-size: 12px;
+      color: #ff6b6b;
+      margin-bottom: 16px;
+    }
+
+    .error-msg.visible {
+      display: block;
+    }
+
+    .submit-btn {
+      width: 100%;
+      background: #7b61ff;
+      border: none;
+      border-radius: 7px;
+      padding: 11px;
+      font-family: 'Geist Mono', monospace;
+      font-size: 13px;
+      font-weight: 500;
+      color: #fff;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      letter-spacing: 0.03em;
+      margin-top: 4px;
+    }
+
+    .submit-btn:hover:not(:disabled) {
+      opacity: 0.88;
+    }
+
+    .submit-btn:active:not(:disabled) {
+      transform: scale(0.99);
+    }
+
+    .submit-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .submit-btn.loading::after {
+      content: '...';
+    }
+
+    .login-footer {
+      margin-top: 20px;
+      font-size: 11px;
+      color: #444;
+      text-align: center;
+    }
+
+    .security-note {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 11px;
+      color: #444;
+      line-height: 1.5;
+    }
+
+    .security-note-icon {
+      color: #7b61ff;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-header">
+      <div class="login-logo">
+        <span class="login-logo-hex">⬡</span>
+        SOC TRIAGE
+      </div>
+      <h1 class="login-title">Secure access</h1>
+      <p class="login-subtitle">Authentication required to continue</p>
+    </div>
+
+    <div class="login-card">
+      <div class="error-msg" id="error-msg"></div>
+
+      <div class="field">
+        <label for="username">Username</label>
+        <input
+          type="text"
+          id="username"
+          name="username"
+          autocomplete="username"
+          placeholder="analyst"
+          autofocus
+        />
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          autocomplete="current-password"
+          placeholder="••••••••"
+        />
+      </div>
+
+      <div class="field totp-field" id="totp-field">
+        <label for="totp">Authenticator code</label>
+        <input
+          type="text"
+          id="totp"
+          name="totp"
+          autocomplete="one-time-code"
+          placeholder="000000"
+          maxlength="6"
+          inputmode="numeric"
+        />
+        <p class="totp-hint">Enter the 6-digit code from your authenticator app</p>
+      </div>
+
+      <button class="submit-btn" id="submit-btn" type="button">
+        Sign in
+      </button>
+
+      <div class="security-note">
+        <span class="security-note-icon">⬡</span>
+        <span>Sessions expire after 30 minutes. Response actions require step-up authentication.</span>
+      </div>
+    </div>
+
+    <div class="login-footer">
+      SOC Triage Platform · Session-bound authentication
+    </div>
+  </div>
+
+  <script>
+    const AUTH_URL = '';
+
+    const usernameEl = document.getElementById('username');
+    const passwordEl = document.getElementById('password');
+    const totpEl     = document.getElementById('totp');
+    const totpField  = document.getElementById('totp-field');
+    const submitBtn  = document.getElementById('submit-btn');
+    const errorMsg   = document.getElementById('error-msg');
+
+    let requiresTotp = false;
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.classList.add('visible');
+    }
+
+    function hideError() {
+      errorMsg.classList.remove('visible');
+    }
+
+    function setLoading(loading) {
+      submitBtn.disabled = loading;
+      submitBtn.textContent = loading ? 'Signing in' : 'Sign in';
+    }
+
+    async function doLogin() {
+      hideError();
+      const username = usernameEl.value.trim();
+      const password = passwordEl.value;
+      const totp_code = totpEl.value.trim() || undefined;
+
+      if (!username || !password) {
+        showError('Username and password are required');
+        return;
+      }
+
+      if (requiresTotp && !totp_code) {
+        showError('Authenticator code required');
+        totpEl.focus();
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        const res = await fetch(`/api/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ username, password, totp_code }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          if (data.requires_totp && !requiresTotp) {
+            // Show TOTP field
+            requiresTotp = true;
+            totpField.classList.add('visible');
+            totpEl.focus();
+            setLoading(false);
+            return;
+          }
+          showError(data.error || 'Invalid credentials');
+          setLoading(false);
+          return;
+        }
+
+        if (data.requires_totp_enrollment) {
+          // TOTP enrollment not yet implemented — go to dashboard
+          window.location.href = '/dashboard';
+          return;
+        }
+
+        // Success — redirect to dashboard
+        const next = new URLSearchParams(window.location.search).get('next') || '/dashboard';
+        window.location.href = next;
+
+      } catch (err) {
+        showError('Connection error — is the auth service running?');
+        setLoading(false);
+      }
+    }
+
+    submitBtn.addEventListener('click', doLogin);
+
+    // Enter key on any field
+    [usernameEl, passwordEl, totpEl].forEach(el => {
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') doLogin();
+      });
+    });
+
+    // TOTP: auto-submit when 6 digits entered
+    totpEl.addEventListener('input', () => {
+      if (totpEl.value.length === 6) doLogin();
+    });
+  </script>
+</body>
+</html>

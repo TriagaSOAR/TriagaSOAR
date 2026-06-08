@@ -42,6 +42,7 @@ services:
       - AUTH0_DOMAIN=${AUTH0_DOMAIN:-}
       - AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID:-}
       - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET:-}
+      - SCUBAGEAR_OUTPUT_DIR=/app/data/scubagear
     volumes:
       - ./data:/app/data
     depends_on:
@@ -111,6 +112,8 @@ services:
         PUBLIC_API_URL: http://localhost:3000
     container_name: web-frontend
     network_mode: host
+    environment:
+      - AUTH_SERVICE_URL=http://localhost:4000
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4321/"]
@@ -119,7 +122,7 @@ services:
       retries: 3
       start_period: 10s
 
-  # ── Maester (optional — Microsoft 365 security checks) ───────────────────────
+  # ── Maester (optional — Microsoft 365 security checks) ────────────────
   maester:
     profiles: [maester]
     build: ./integrations/maester
@@ -134,7 +137,8 @@ services:
     volumes:
       - ./data/maester:/app/output
     restart: unless-stopped
-  # ── ScubaGear (optional — CISA SCuBA M365 baseline checks) ──────────────────
+
+  # ── ScubaGear (optional — CISA SCuBA M365 baseline checks) ───────────
   scubagear:
     profiles: [scubagear]
     build: ./integrations/scubagear
@@ -152,5 +156,59 @@ services:
       - ./integrations/scubagear/certs:/app/certs:ro
     restart: unless-stopped
 
+  # ── Postgres (session store + audit log) ──────────────────────────────
+  postgres:
+    build: ./postgres
+    container_name: postgres
+    network_mode: host
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-soc_triage}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - AUTH_APP_PASSWORD=${AUTH_APP_PASSWORD}
+      - AUDIT_WRITER_PASSWORD=${AUDIT_WRITER_PASSWORD}
+      - AUDIT_READER_PASSWORD=${AUDIT_READER_PASSWORD}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Auth proxy (Axum, sits in front of everything) ────────────────────
+  auth:
+    profiles: [local, cloud]
+    build: ./auth
+    container_name: auth
+    network_mode: host
+    environment:
+      - POSTGRES_HOST=localhost
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-soc_triage}
+      - AUTH_APP_PASSWORD=${AUTH_APP_PASSWORD}
+      - AUDIT_WRITER_PASSWORD=${AUDIT_WRITER_PASSWORD}
+      - BACKEND_URL=http://localhost:3000
+      - AGENT_URL=http://localhost:8000
+      - SESSION_SECRET=${SESSION_SECRET}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - IP_ALLOWLIST=${IP_ALLOWLIST:-}
+      - RUST_LOG=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/auth/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 volumes:
   ollama_data:
+  postgres_data:
