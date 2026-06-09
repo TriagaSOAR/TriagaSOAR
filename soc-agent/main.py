@@ -660,10 +660,17 @@ async def correlate_identity(email: str = None, upn: str = None):
             from okta import okta_available, get_users, enrich_user_from_okta
             if not okta_available():
                 return
-            users = await get_users(limit=5, search=search_email)
+            # Use Okta filter syntax for exact email match
+            users = await get_users(limit=5, search=f'profile.email eq "{search_email}" or profile.login eq "{search_email}"')
             match = next((u for u in users if
                 (u.get("profile", {}).get("email", "").lower() == search_email or
                  u.get("profile", {}).get("login", "").lower() == search_email)), None)
+            if not match:
+                # Fallback: fetch all and filter client-side
+                all_users = await get_users(limit=50)
+                match = next((u for u in all_users if
+                    (u.get("profile", {}).get("email", "").lower() == search_email or
+                     u.get("profile", {}).get("login", "").lower() == search_email)), None)
             if match:
                 detail = await enrich_user_from_okta(match["id"])
                 results["okta"] = {
@@ -676,8 +683,8 @@ async def correlate_identity(email: str = None, upn: str = None):
                     "failed_signin_count_48h": detail.get("failed_signin_count_48h"),
                     "recent_ips": detail.get("recent_ips", []),
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[correlation] Okta lookup failed: {e}")
 
     # Auth0 lookup
     async def lookup_auth0():
@@ -700,8 +707,8 @@ async def correlate_identity(email: str = None, upn: str = None):
                     "failed_signin_count_48h": detail.get("failed_signin_count_48h"),
                     "recent_ips": detail.get("recent_ips", []),
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[correlation] Auth0 lookup failed: {e}")
 
     await asyncio.gather(lookup_entra(), lookup_okta(), lookup_auth0())
 

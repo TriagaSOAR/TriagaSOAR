@@ -1,7 +1,7 @@
 // web-frontend/src/middleware.ts
 import { defineMiddleware } from 'astro:middleware';
 
-const PUBLIC_PATHS = ['/login', '/api/login'];
+const PUBLIC_PATHS = ['/login', '/api/login', '/api/logout'];
 
 export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname } = context.url;

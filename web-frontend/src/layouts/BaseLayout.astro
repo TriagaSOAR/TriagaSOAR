@@ -10,7 +10,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{title} — SOC Triage</title>
+  <title>{title} — TriagaSOAR</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link
     href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&family=Geist:wght@300;400;500;600&display=swap"
@@ -21,7 +21,7 @@ const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
 <body>
   <nav class="navbar">
     <div class="nav-left">
-      <span class="nav-logo">⬡ SOC TRIAGE</span>
+      <span class="nav-logo">⬡ TriagaSOAR</span>
       <span class="nav-version">v0.1.0</span>
     </div>
     <div class="nav-links">
@@ -41,18 +41,13 @@ const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
         </button>
         <div class="nav-dropdown-menu" role="menu">
           <div class="dropdown-section-label">Identity</div>
+          <a href="/identity" class="dropdown-item" role="menuitem">
+            <span class="dropdown-icon">◎</span>
+            Cross-Platform Correlation
+          </a>
           <a href="/entra" class="dropdown-item" role="menuitem">
             <span class="dropdown-icon">⬡</span>
             Microsoft Entra ID
-          </a>
-          <div class="dropdown-section-label">M365 Security</div>
-          <a href="/maester" class="dropdown-item" role="menuitem">
-            <span class="dropdown-icon">✦</span>
-            Maester
-          </a>
-          <a href="/scubagear" class="dropdown-item" role="menuitem">
-            <span class="dropdown-icon">✦</span>
-            ScubaGear
           </a>
           <a href="/okta" class="dropdown-item" role="menuitem">
             <span class="dropdown-icon">✦</span>
@@ -61,6 +56,16 @@ const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
           <a href="/auth0" class="dropdown-item" role="menuitem">
             <span class="dropdown-icon">✦</span>
             Auth0
+          </a>
+          <div class="dropdown-divider"></div>
+          <div class="dropdown-section-label">M365 Security</div>
+          <a href="/maester" class="dropdown-item" role="menuitem">
+            <span class="dropdown-icon">✦</span>
+            Maester
+          </a>
+          <a href="/scubagear" class="dropdown-item" role="menuitem">
+            <span class="dropdown-icon">✦</span>
+            ScubaGear
           </a>
           <div class="dropdown-divider"></div>
           <div class="dropdown-section-label">Coming soon</div>
@@ -76,6 +81,9 @@ const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
       </div>
     </div>
     <div class="nav-right">
+      <a href="#" id="logout-btn" class="nav-link" style="font-size: 12px; color: #555;">
+        Sign out
+      </a>
       <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">
         <span class="theme-icon">◐</span>
       </button>
@@ -97,6 +105,13 @@ const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
     localStorage.setItem("theme", next);
   });
 
+  // Logout
+  document.getElementById("logout-btn")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    await fetch("/api/logout", { method: "POST" }).catch(() => {});
+    window.location.href = "/login";
+  });
+
   // Dropdown toggle
   const dropdown = document.getElementById("integrations-dropdown");
   const trigger = dropdown?.querySelector(".nav-dropdown-trigger");
@@ -109,104 +124,66 @@ const apiUrl = import.meta.env.PUBLIC_API_URL ?? "http://localhost:3000";
     menu?.classList.toggle("open", !expanded);
   });
 
-  // Close on outside click
   document.addEventListener("click", () => {
     trigger?.setAttribute("aria-expanded", "false");
     menu?.classList.remove("open");
   });
 
-  // Prevent menu clicks from closing
   menu?.addEventListener("click", (e) => e.stopPropagation());
 </script>
 <style>
-  .nav-dropdown {
-    position: relative;
-  }
+  .nav-dropdown { position: relative; }
 
   .nav-dropdown-trigger {
-    background: none;
-    border: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 4px;
+    background: none; border: none; cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
   }
 
-  .dropdown-arrow {
-    font-size: 10px;
-    transition: transform 0.15s ease;
-  }
+  .dropdown-arrow { font-size: 10px; transition: transform 0.15s ease; }
 
   .nav-dropdown-trigger[aria-expanded="true"] .dropdown-arrow {
     transform: rotate(180deg);
   }
 
   .nav-dropdown-menu {
-    display: none;
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    min-width: 200px;
+    display: none; position: absolute;
+    top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+    min-width: 220px;
     background: var(--bg-card, #13131e);
     border: 1px solid var(--border, #2a2a3a);
-    border-radius: 8px;
-    padding: 6px;
-    z-index: 100;
+    border-radius: 8px; padding: 6px; z-index: 100;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   }
 
-  .nav-dropdown-menu.open {
-    display: block;
-  }
+  .nav-dropdown-menu.open { display: block; }
 
   .dropdown-section-label {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #555;
-    padding: 6px 10px 4px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: #555; padding: 6px 10px 4px;
     font-family: 'Geist Mono', monospace;
   }
 
   .dropdown-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    border-radius: 6px;
-    font-size: 13px;
-    color: var(--text, #e0e0f0);
-    text-decoration: none;
-    cursor: pointer;
-    transition: background 0.1s;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 6px; font-size: 13px;
+    color: var(--text, #e0e0f0); text-decoration: none;
+    cursor: pointer; transition: background 0.1s;
   }
 
   .dropdown-item:hover:not(.dropdown-item--disabled) {
     background: var(--bg-hover, #1e1e2e);
   }
 
-  .dropdown-item--disabled {
-    color: #444;
-    cursor: default;
-  }
+  .dropdown-item--disabled { color: #444; cursor: default; }
 
   .dropdown-icon {
-    font-size: 12px;
-    color: #7b61ff;
-    width: 16px;
-    text-align: center;
+    font-size: 12px; color: #7b61ff; width: 16px; text-align: center;
   }
 
-  .dropdown-item--disabled .dropdown-icon {
-    color: #333;
-  }
+  .dropdown-item--disabled .dropdown-icon { color: #333; }
 
   .dropdown-divider {
-    height: 1px;
-    background: var(--border, #2a2a3a);
-    margin: 6px 4px;
+    height: 1px; background: var(--border, #2a2a3a); margin: 6px 4px;
   }
 </style>
 </html>

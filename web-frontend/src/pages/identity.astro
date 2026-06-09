@@ -1,0 +1,19 @@
+---
+export const prerender = false;
+import BaseLayout from "../layouts/BaseLayout.astro";
+import IdentityPanel from "../components/IdentityPanel";
+---
+<BaseLayout title="Identity Correlation">
+  <div style="max-width: 1100px; margin: 0 auto; padding: 32px 24px;">
+    <div style="margin-bottom: 28px;">
+      <div style="font-family: monospace; font-size: 11px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.08em;">
+        Identity Intelligence
+      </div>
+      <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 6px 0;">Cross-Platform Correlation</h1>
+      <p style="color: #888; margin: 0; font-size: 14px;">
+        Look up an identity across Entra ID, Okta, and Auth0 simultaneously. Aggregates risk signals and flags shared suspicious IPs across providers.
+      </p>
+    </div>
+    <IdentityPanel client:load />
+  </div>
+</BaseLayout>
