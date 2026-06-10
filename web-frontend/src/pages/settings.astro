@@ -1,0 +1,29 @@
+---
+export const prerender = false;
+import BaseLayout from "../layouts/BaseLayout.astro";
+import SettingsPanel from "../components/SettingsPanel";
+
+// Pass role to the component so it knows whether to show admin sections
+const cookie = Astro.request.headers.get('cookie') ?? '';
+let role = 'analyst';
+try {
+  const AUTH_URL = process.env.AUTH_SERVICE_URL ?? 'http://localhost:4000';
+  const res = await fetch(`${AUTH_URL}/users`, { headers: { 'Cookie': cookie } });
+  // If we can list users, we're admin
+  if (res.ok) role = 'admin';
+} catch {}
+---
+<BaseLayout title="Settings">
+  <div style="max-width: 800px; margin: 0 auto; padding: 32px 24px;">
+    <div style="margin-bottom: 28px;">
+      <div style="font-family: monospace; font-size: 11px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.08em;">
+        Account
+      </div>
+      <h1 style="font-size: 24px; font-weight: 700; margin: 0 0 6px 0;">Settings</h1>
+      <p style="color: #888; margin: 0; font-size: 14px;">
+        Manage your account and {role === 'admin' ? 'platform users.' : 'password.'}
+      </p>
+    </div>
+    <SettingsPanel client:load isAdmin={role === 'admin'} />
+  </div>
+</BaseLayout>

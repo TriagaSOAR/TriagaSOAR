@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from splunk_mcp import run_query, call_tool
 from agent import triage, ollama_chat
 from report import generate_ir_report
-from database import init_db, save_report, correlate, get_all_cases, get_case, get_connection, set_verdict, get_stats
+from database import init_db, save_report, correlate, get_all_cases, get_case, get_connection, set_verdict, get_stats, get_playbook_executions
+from playbooks import run_playbooks, load_playbooks
 from blast_radius import estimate_blast_radius
 from streaming import stream_investigation
 from webhook import parse_splunk_webhook
@@ -76,6 +77,10 @@ async def investigate_alert(alert: dict):
         report["repeated_attacker"] = False
     case_id = save_report(report, alert)
     report["case_id"] = case_id
+    # Run playbooks against the completed report
+    conn = get_connection()
+    report["playbook_executions"] = await run_playbooks(report, db_conn=conn)
+    conn.close()
     return report
 
 
@@ -115,6 +120,9 @@ async def run_webhook_investigation(alert: dict):
         report["triggered_by"] = "webhook"
         case_id = save_report(report, alert)
         report["case_id"] = case_id
+        conn = get_connection()
+        await run_playbooks(report, db_conn=conn)
+        conn.close()
     except Exception as e:
         print(f"Webhook investigation failed: {e}")
 
@@ -762,6 +770,59 @@ async def search_identity(q: str):
     if not q or len(q) < 3:
         raise HTTPException(status_code=400, detail="Search query must be at least 3 characters")
     return await correlate_identity(email=q)
+
+
+# ── Playbook endpoints ────────────────────────────────────────────────────────
+
+@app.get("/playbooks")
+async def list_playbooks():
+    """List all playbooks with their conditions and enabled state."""
+    playbooks = load_playbooks()
+    return {
+        "count": len(playbooks),
+        "playbooks": [
+            {
+                "id": pb.get("id"),
+                "name": pb.get("name"),
+                "description": pb.get("description", "").strip(),
+                "enabled": pb.get("enabled", True),
+                "conditions": pb.get("conditions", {}),
+                "action_count": len(pb.get("actions", [])),
+                "action_types": [a.get("type") for a in pb.get("actions", [])],
+            }
+            for pb in playbooks
+        ]
+    }
+
+
+@app.get("/playbooks/executions")
+async def playbook_executions(limit: int = 50):
+    """Recent playbook execution history."""
+    return {"executions": get_playbook_executions(limit=limit)}
+
+
+@app.get("/playbooks/executions/{report_id}")
+async def playbook_executions_for_case(report_id: str):
+    """Playbook executions for a specific case."""
+    return {"executions": get_playbook_executions(report_id=report_id)}
+
+
+@app.post("/playbooks/test/{playbook_id}")
+async def test_playbook(playbook_id: str, report: dict):
+    """Dry-run: evaluate conditions only, do not execute actions."""
+    from playbooks import evaluate_conditions, build_context
+    playbooks = load_playbooks()
+    pb = next((p for p in playbooks if p["id"] == playbook_id), None)
+    if not pb:
+        raise HTTPException(status_code=404, detail=f"Playbook {playbook_id} not found")
+    matched = evaluate_conditions(pb.get("conditions", {}), report)
+    ctx = build_context(report)
+    return {
+        "playbook_id": playbook_id,
+        "matched": matched,
+        "conditions": pb.get("conditions", {}),
+        "context": ctx,
+    }
 
 
 # ── Entra ID endpoints ────────────────────────────────────────────────────────

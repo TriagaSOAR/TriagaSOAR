@@ -46,11 +46,36 @@ def init_db():
             last_result_count INTEGER DEFAULT 0
         )
     """)
-    # Add verdict column if it doesn't exist (migration)
-    try:
-        conn.execute("ALTER TABLE cases ADD COLUMN verdict TEXT DEFAULT NULL")
-    except Exception:
-        pass
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS response_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action TEXT NOT NULL,
+            target TEXT NOT NULL,
+            performed_at TEXT NOT NULL,
+            details TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS playbook_executions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            playbook_id TEXT NOT NULL,
+            playbook_name TEXT NOT NULL,
+            report_id TEXT NOT NULL,
+            triggered_at TEXT NOT NULL,
+            action_results TEXT,
+            overall_status TEXT NOT NULL DEFAULT 'ok'
+        )
+    """)
+
+    # Migrations — add columns that may not exist in older DBs
+    for migration in [
+        "ALTER TABLE cases ADD COLUMN verdict TEXT DEFAULT NULL",
+    ]:
+        try:
+            conn.execute(migration)
+        except Exception:
+            pass
+
     conn.commit()
     conn.close()
 
@@ -182,9 +207,31 @@ def set_verdict(report_id: str, verdict: str) -> bool:
             (verdict, report_id)
         )
         conn.commit()
-        return conn.execute(
-            "SELECT changes()"
-        ).fetchone()[0] > 0
+        return conn.execute("SELECT changes()").fetchone()[0] > 0
+    finally:
+        conn.close()
+
+
+def get_playbook_executions(report_id: str = None, limit: int = 100) -> list:
+    conn = get_connection()
+    try:
+        if report_id:
+            rows = conn.execute("""
+                SELECT * FROM playbook_executions
+                WHERE report_id = ?
+                ORDER BY triggered_at DESC LIMIT ?
+            """, (report_id, limit)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT * FROM playbook_executions
+                ORDER BY triggered_at DESC LIMIT ?
+            """, (limit,)).fetchall()
+        result = []
+        for row in rows:
+            r = dict(row)
+            r["action_results"] = json.loads(r.get("action_results") or "[]")
+            result.append(r)
+        return result
     finally:
         conn.close()
 
@@ -216,6 +263,10 @@ def get_stats() -> dict:
         """).fetchall():
             fp_by_type[row["alert_type"]] = row["count"]
 
+        playbook_runs = conn.execute(
+            "SELECT COUNT(*) FROM playbook_executions"
+        ).fetchone()[0]
+
         return {
             "total": total,
             "confirmed": confirmed,
@@ -224,6 +275,7 @@ def get_stats() -> dict:
             "by_severity": by_severity,
             "false_positive_by_type": fp_by_type,
             "fp_rate": round(false_positive / total * 100, 1) if total > 0 else 0,
+            "playbook_executions": playbook_runs,
         }
     finally:
         conn.close()

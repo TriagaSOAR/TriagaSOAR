@@ -1,0 +1,16 @@
+id: high-severity-notification
+name: High Severity Alert Notification
+enabled: true
+description: >
+  Send a Teams notification for any high or critical severity investigation.
+
+conditions:
+  severity_in:
+    - high
+    - critical
+  confidence_gte: 0.60
+
+actions:
+  - type: teams
+    title: "TriagaSOAR: {{severity}} Alert — {{alert_title}}"
+    message: "Severity: {{severity}} | Confidence: {{confidence}}% | Techniques: {{technique_ids}} | User: {{affected_user}} | IP: {{attacker_ip}} | Report: {{report_id}}"

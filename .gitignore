@@ -6,3 +6,4 @@ data/maester/*
 data/scubagear/*
 
 integrations/scubagear/certs/*
+secrets/

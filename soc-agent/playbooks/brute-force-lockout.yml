@@ -1,0 +1,28 @@
+id: brute-force-lockout
+name: Brute Force Account Lockout
+enabled: true
+description: >
+  Suspend Okta account and disable Entra account when a brute force
+  attack is confirmed with critical severity.
+
+conditions:
+  confidence_gte: 0.85
+  severity_in:
+    - critical
+  techniques_include:
+    - T1110
+
+actions:
+  - type: entra_disable_user
+    target: "{{affected_user}}"
+
+  - type: okta_suspend
+    target: "{{affected_user}}"
+
+  - type: teams
+    title: "TriagaSOAR: Account Locked — Brute Force"
+    message: "Account {{affected_user}} disabled across Entra ID and Okta. Confidence: {{confidence}}%. Report: {{report_id}}"
+
+  - type: splunk_saved_search
+    name: "Monitor: Post-lockout {{affected_user}}"
+    spl: 'index=main "{{affected_user}}" | eval time=strftime(_time, "%Y-%m-%d %H:%M:%S") | table time, src_ip, action, user | sort -time'

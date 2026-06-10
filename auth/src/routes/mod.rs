@@ -1,8 +1,9 @@
 // auth/src/routes/mod.rs
 pub mod login;
 pub mod sat;
+pub mod users;
 
-use axum::{routing::{get, post}, Router};
+use axum::{routing::{get, post, delete}, Router};
 use crate::AppState;
 
 pub fn auth_router() -> Router<AppState> {
@@ -22,6 +23,13 @@ pub fn audit_router() -> Router<AppState> {
     Router::new()
         .route("/", get(audit_log))
         .route("/verify", get(verify_chain))
+}
+
+pub fn users_router() -> Router<AppState> {
+    Router::new()
+        .route("/", get(users::list_users).post(users::create_user))
+        .route("/{id}", delete(users::deactivate_user))
+        .route("/change-password", post(users::change_password))
 }
 
 async fn health() -> axum::Json<serde_json::Value> {

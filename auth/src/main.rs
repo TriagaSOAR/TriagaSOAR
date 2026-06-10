@@ -34,6 +34,29 @@ pub struct Config {
     pub ip_allowlist: Vec<std::net::IpAddr>,
 }
 
+// Read a value from a Docker secret file if the env var points to one,
+// otherwise fall back to the env var value directly.
+fn read_secret(env_var: &str) -> String {
+    // Check for _FILE variant first (Docker secrets convention)
+    let file_var = format!("{}_FILE", env_var);
+    if let Ok(path) = std::env::var(&file_var) {
+        match std::fs::read_to_string(&path) {
+            Ok(contents) => return contents.trim().to_string(),
+            Err(e) => tracing::warn!("Failed to read secret file {}: {}", path, e),
+        }
+    }
+    // Also check /run/secrets/<lowercase_name> directly (Docker mounts with underscores)
+    let secret_name = env_var.to_lowercase();
+    let default_path = format!("/run/secrets/{}", secret_name);
+    if std::path::Path::new(&default_path).exists() {
+        if let Ok(contents) = std::fs::read_to_string(&default_path) {
+            return contents.trim().to_string();
+        }
+    }
+    // Fall back to plain env var
+    std::env::var(env_var).unwrap_or_default()
+}
+
 impl Config {
     pub fn from_env() -> Result<Self> {
         let postgres_host = std::env::var("POSTGRES_HOST").unwrap_or("localhost".into());
@@ -56,14 +79,20 @@ impl Config {
             .filter_map(|s| s.trim().parse().ok())
             .collect();
 
+        // Admin password and session secret support Docker secrets
+        let admin_password = read_secret("ADMIN_PASSWORD");
+        let session_secret = {
+            let s = read_secret("SESSION_SECRET");
+            if s.is_empty() { crypto::generate_token_hex() } else { s }
+        };
+
         Ok(Config {
             database_url,
             audit_database_url,
             backend_url: std::env::var("BACKEND_URL").unwrap_or("http://localhost:3000".into()),
             agent_url: std::env::var("AGENT_URL").unwrap_or("http://localhost:8000".into()),
-            session_secret: std::env::var("SESSION_SECRET")
-                .unwrap_or_else(|_| crypto::generate_token_hex()),
-            admin_password: std::env::var("ADMIN_PASSWORD").unwrap_or_default(),
+            session_secret,
+            admin_password,
             admin_email: std::env::var("ADMIN_EMAIL").unwrap_or_default(),
             ip_allowlist,
         })
@@ -109,11 +138,15 @@ async fn main() -> Result<()> {
         .nest("/auth", routes::auth_router())
         .nest("/sat", routes::sat_router())
         .nest("/audit", routes::audit_router())
+        .nest("/users", routes::users_router())
         .fallback(proxy::proxy_handler)
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
-                .layer(TimeoutLayer::with_status_code(axum::http::StatusCode::GATEWAY_TIMEOUT, Duration::from_secs(30)))
+                .layer(TimeoutLayer::with_status_code(
+                    axum::http::StatusCode::GATEWAY_TIMEOUT,
+                    Duration::from_secs(30),
+                ))
                 .layer(axum_middleware::from_fn_with_state(
                     state.clone(),
                     middleware::session::session_middleware,

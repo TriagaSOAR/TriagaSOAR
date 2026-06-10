@@ -1,0 +1,19 @@
+id: repeated-attacker-escalation
+name: Repeated Attacker Escalation
+enabled: true
+description: >
+  When the same attacker IP appears in multiple cases, escalate via Teams
+  and create a persistent hunt in Splunk.
+
+conditions:
+  repeated_attacker: true
+  confidence_gte: 0.70
+
+actions:
+  - type: splunk_saved_search
+    name: "Persistent Hunt: Repeat Attacker {{attacker_ip}}"
+    spl: 'index=main "{{attacker_ip}}" | stats count, values(user) as users, values(action) as actions by src_ip | sort -count'
+
+  - type: teams
+    title: "TriagaSOAR: Repeat Attacker Detected"
+    message: "IP {{attacker_ip}} has appeared in multiple cases. Latest: {{alert_title}} ({{severity}}, {{confidence}}% confidence). Report: {{report_id}}"

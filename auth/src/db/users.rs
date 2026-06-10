@@ -70,6 +70,74 @@ pub async fn find_by_id(db: &PgPool, id: Uuid) -> Result<Option<User>> {
     }))
 }
 
+pub async fn list_all(db: &PgPool) -> Result<Vec<User>> {
+    let rows = sqlx::query(
+        "SELECT id, username, email, password_hash, totp_secret, totp_enrolled, role, active, failed_attempts, lockout_until
+         FROM users ORDER BY username ASC"
+    )
+    .fetch_all(db)
+    .await?;
+
+    use sqlx::Row;
+    Ok(rows.into_iter().map(|r| User {
+        id: r.get("id"),
+        username: r.get("username"),
+        email: r.get("email"),
+        password_hash: r.get("password_hash"),
+        totp_secret: r.get("totp_secret"),
+        totp_enrolled: r.get("totp_enrolled"),
+        role: r.get("role"),
+        active: r.get("active"),
+        failed_attempts: r.get("failed_attempts"),
+        lockout_until: r.get("lockout_until"),
+    }).collect())
+}
+
+pub async fn create_user(
+    db: &PgPool,
+    username: &str,
+    email: &str,
+    password_hash: &str,
+    role: &str,
+) -> Result<Uuid> {
+    use sqlx::Row;
+    let row = sqlx::query(
+        r#"INSERT INTO users (username, email, password_hash, role, active)
+           VALUES ($1, $2, $3, $4, true)
+           RETURNING id"#
+    )
+    .bind(username)
+    .bind(email)
+    .bind(password_hash)
+    .bind(role)
+    .fetch_one(db)
+    .await?;
+
+    Ok(row.get("id"))
+}
+
+pub async fn deactivate_user(db: &PgPool, user_id: Uuid) -> Result<bool> {
+    let result = sqlx::query(
+        "UPDATE users SET active = false WHERE id = $1 AND active = true"
+    )
+    .bind(user_id)
+    .execute(db)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn update_password(db: &PgPool, user_id: Uuid, new_hash: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET password_hash = $1 WHERE id = $2"
+    )
+    .bind(new_hash)
+    .bind(user_id)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn increment_failed_attempts(db: &PgPool, username: &str) -> Result<i32> {
     let row = sqlx::query(
         r#"UPDATE users

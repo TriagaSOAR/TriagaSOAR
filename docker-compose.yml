@@ -43,8 +43,11 @@ services:
       - AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID:-}
       - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET:-}
       - SCUBAGEAR_OUTPUT_DIR=/app/data/scubagear
+      - PLAYBOOKS_DIR=/app/playbooks
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
     volumes:
       - ./data:/app/data
+      - ./soc-agent/playbooks:/app/playbooks:ro
     depends_on:
       ollama:
         condition: service_started
@@ -73,12 +76,25 @@ services:
       - SPLUNK_WRITE_TOKEN=${SPLUNK_WRITE_TOKEN:-}
       - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL:-false}
       - DB_PATH=${DB_PATH:-/app/data/cases.db}
+      - MAESTER_OUTPUT_DIR=/app/data/maester
+      - SCUBAGEAR_OUTPUT_DIR=/app/data/scubagear
       - MONITOR_ENABLED=${MONITOR_ENABLED:-false}
       - MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-60}
       - MONITOR_COOLDOWN_MINUTES=${MONITOR_COOLDOWN_MINUTES:-5}
       - ABUSEIPDB_API_KEY=${ABUSEIPDB_API_KEY:-}
+      - ENTRA_TENANT_ID=${ENTRA_TENANT_ID:-}
+      - ENTRA_CLIENT_ID=${ENTRA_CLIENT_ID:-}
+      - ENTRA_CLIENT_SECRET=${ENTRA_CLIENT_SECRET:-}
+      - OKTA_DOMAIN=${OKTA_DOMAIN:-}
+      - OKTA_API_TOKEN=${OKTA_API_TOKEN:-}
+      - AUTH0_DOMAIN=${AUTH0_DOMAIN:-}
+      - AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID:-}
+      - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET:-}
+      - PLAYBOOKS_DIR=/app/playbooks
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
     volumes:
       - ./data:/app/data
+      - ./soc-agent/playbooks:/app/playbooks:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -185,6 +201,9 @@ services:
     build: ./auth
     container_name: auth
     network_mode: host
+    secrets:
+      - admin_password
+      - session_secret
     environment:
       - POSTGRES_HOST=localhost
       - POSTGRES_PORT=5432
@@ -193,9 +212,7 @@ services:
       - AUDIT_WRITER_PASSWORD=${AUDIT_WRITER_PASSWORD}
       - BACKEND_URL=http://localhost:3000
       - AGENT_URL=http://localhost:8000
-      - SESSION_SECRET=${SESSION_SECRET}
       - ADMIN_EMAIL=${ADMIN_EMAIL}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - IP_ALLOWLIST=${IP_ALLOWLIST:-}
       - RUST_LOG=info
     depends_on:
@@ -212,3 +229,9 @@ services:
 volumes:
   ollama_data:
   postgres_data:
+
+secrets:
+  admin_password:
+    file: ./secrets/admin_password.txt
+  session_secret:
+    file: ./secrets/session_secret.txt
