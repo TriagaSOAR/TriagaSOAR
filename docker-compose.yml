@@ -23,9 +23,10 @@ services:
       - OLLAMA_HOST=http://localhost:11434
       - REASONER_MODEL=${REASONER_MODEL:-qwen3:14b}
       - ROUTER_MODEL=${ROUTER_MODEL:-qwen3:1.7b}
-      - SPLUNK_HOST=${SPLUNK_HOST}
+      - SPLUNK_HOST=${SPLUNK_HOST:-localhost}
       - SPLUNK_PORT=${SPLUNK_PORT:-8089}
-      - SPLUNK_TOKEN=${SPLUNK_TOKEN}
+      - SPLUNK_TOKEN=${SPLUNK_TOKEN:-}
+      - SPLUNK_TOKEN_FILE=${SPLUNK_TOKEN_FILE:-}
       - SPLUNK_WRITE_TOKEN=${SPLUNK_WRITE_TOKEN:-}
       - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL:-false}
       - DB_PATH=${DB_PATH:-/app/data/cases.db}
@@ -48,6 +49,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./soc-agent/playbooks:/app/playbooks:ro
+      - splunk_shared:/splunk-shared:ro
     depends_on:
       ollama:
         condition: service_started
@@ -70,9 +72,10 @@ services:
       - CLOUD_MODEL=${CLOUD_MODEL:-gpt-4o}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - SPLUNK_HOST=${SPLUNK_HOST}
+      - SPLUNK_HOST=${SPLUNK_HOST:-localhost}
       - SPLUNK_PORT=${SPLUNK_PORT:-8089}
-      - SPLUNK_TOKEN=${SPLUNK_TOKEN}
+      - SPLUNK_TOKEN=${SPLUNK_TOKEN:-}
+      - SPLUNK_TOKEN_FILE=${SPLUNK_TOKEN_FILE:-}
       - SPLUNK_WRITE_TOKEN=${SPLUNK_WRITE_TOKEN:-}
       - SPLUNK_VERIFY_SSL=${SPLUNK_VERIFY_SSL:-false}
       - DB_PATH=${DB_PATH:-/app/data/cases.db}
@@ -95,6 +98,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./soc-agent/playbooks:/app/playbooks:ro
+      - splunk_shared:/splunk-shared:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -138,7 +142,28 @@ services:
       retries: 3
       start_period: 10s
 
-  # ── Maester (optional — Microsoft 365 security checks) ────────────────
+  # ── Splunk Enterprise + MCP Server (self-contained demo mode) ─────────
+  splunk:
+    profiles: [splunk]
+    build: ./docker/splunk
+    container_name: splunk
+    network_mode: host
+    environment:
+      - SPLUNK_START_ARGS=--accept-license
+      - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
+      - SPLUNK_PASSWORD=${SPLUNK_PASSWORD:-changeme123!}
+    volumes:
+      - splunk_data:/opt/splunk/var
+      - splunk_shared:/shared
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sk", "-u", "admin:${SPLUNK_PASSWORD:-changeme123!}", "https://localhost:8089/services/server/info", "-o", "/dev/null", "-w", "%{http_code}"]
+      interval: 30s
+      timeout: 10s
+      retries: 15
+      start_period: 120s
+
+  # ── Maester (optional) ────────────────────────────────────────────────
   maester:
     profiles: [maester]
     build: ./integrations/maester
@@ -154,7 +179,7 @@ services:
       - ./data/maester:/app/output
     restart: unless-stopped
 
-  # ── ScubaGear (optional — CISA SCuBA M365 baseline checks) ───────────
+  # ── ScubaGear (optional) ──────────────────────────────────────────────
   scubagear:
     profiles: [scubagear]
     build: ./integrations/scubagear
@@ -172,7 +197,7 @@ services:
       - ./integrations/scubagear/certs:/app/certs:ro
     restart: unless-stopped
 
-  # ── Postgres (session store + audit log) ──────────────────────────────
+  # ── Postgres ──────────────────────────────────────────────────────────
   postgres:
     build: ./postgres
     container_name: postgres
@@ -195,7 +220,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Auth proxy (Axum, sits in front of everything) ────────────────────
+  # ── Auth proxy ────────────────────────────────────────────────────────
   auth:
     profiles: [local, cloud]
     build: ./auth
@@ -229,6 +254,8 @@ services:
 volumes:
   ollama_data:
   postgres_data:
+  splunk_data:
+  splunk_shared:
 
 secrets:
   admin_password:
