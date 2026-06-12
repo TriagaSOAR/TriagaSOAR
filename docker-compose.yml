@@ -12,7 +12,7 @@ services:
       - ollama_data:/root/.ollama
     restart: unless-stopped
 
-  # ── soc-agent (both modes) ────────────────────────────────────────────
+  # ── soc-agent (local mode) ────────────────────────────────────────────
   soc-agent-local:
     profiles: [local]
     build: ./soc-agent
@@ -46,10 +46,13 @@ services:
       - SCUBAGEAR_OUTPUT_DIR=/app/data/scubagear
       - PLAYBOOKS_DIR=/app/playbooks
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
+      - VELOCIRAPTOR_ENABLED=${VELOCIRAPTOR_ENABLED:-false}
+      - VELOCIRAPTOR_API_CONFIG=/velociraptor-shared/api.config.yaml
     volumes:
       - ./data:/app/data
       - ./soc-agent/playbooks:/app/playbooks:ro
       - splunk_shared:/splunk-shared:ro
+      - velociraptor_shared:/velociraptor-shared:ro
     depends_on:
       ollama:
         condition: service_started
@@ -61,6 +64,7 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── soc-agent (cloud mode) ────────────────────────────────────────────
   soc-agent-cloud:
     profiles: [cloud]
     build: ./soc-agent
@@ -95,10 +99,13 @@ services:
       - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET:-}
       - PLAYBOOKS_DIR=/app/playbooks
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
+      - VELOCIRAPTOR_ENABLED=${VELOCIRAPTOR_ENABLED:-false}
+      - VELOCIRAPTOR_API_CONFIG=/velociraptor-shared/api.config.yaml
     volumes:
       - ./data:/app/data
       - ./soc-agent/playbooks:/app/playbooks:ro
       - splunk_shared:/splunk-shared:ro
+      - velociraptor_shared:/velociraptor-shared:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -142,10 +149,10 @@ services:
       retries: 3
       start_period: 10s
 
-  # ── Splunk Enterprise + MCP Server (self-contained demo mode) ─────────
+  # ── Splunk Enterprise + MCP Server ────────────────────────────────────
   splunk:
     profiles: [splunk]
-    build: ./docker/splunk
+    build: ./integrations/splunk
     container_name: splunk
     network_mode: host
     environment:
@@ -163,7 +170,32 @@ services:
       retries: 15
       start_period: 120s
 
-  # ── Maester (optional) ────────────────────────────────────────────────
+  # ── Velociraptor (DFIR endpoint agent + hunt platform) ────────────────
+  velociraptor:
+    profiles: [velociraptor]
+    image: xboarder56/velociraptor:latest
+    container_name: velociraptor
+    network_mode: host
+    environment:
+      - VELOX_USER=${VELOX_USER:-admin}
+      - VELOX_PASSWORD=${VELOX_PASSWORD:-changeme123!}
+      - VELOX_FRONTEND_HOSTNAME=${VELOX_FRONTEND_HOSTNAME:-localhost}
+      - VELOX_SERVER_URL=https://localhost:8002/
+      - VELOX_FRONTEND_PORT=8002
+      - VELOX_GUI_PORT=8889
+      - VELOX_API_PORT=8001
+    volumes:
+      - velociraptor_data:/velociraptor
+      - velociraptor_shared:/shared
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sk", "https://localhost:8889", "-o", "/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Maester (optional — Microsoft 365 security checks) ────────────────
   maester:
     profiles: [maester]
     build: ./integrations/maester
@@ -179,7 +211,7 @@ services:
       - ./data/maester:/app/output
     restart: unless-stopped
 
-  # ── ScubaGear (optional) ──────────────────────────────────────────────
+  # ── ScubaGear (optional — CISA SCuBA M365 baseline checks) ───────────
   scubagear:
     profiles: [scubagear]
     build: ./integrations/scubagear
@@ -197,7 +229,7 @@ services:
       - ./integrations/scubagear/certs:/app/certs:ro
     restart: unless-stopped
 
-  # ── Postgres ──────────────────────────────────────────────────────────
+  # ── Postgres (session store + audit log) ──────────────────────────────
   postgres:
     build: ./postgres
     container_name: postgres
@@ -220,7 +252,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Auth proxy ────────────────────────────────────────────────────────
+  # ── Auth proxy (Axum, sits in front of everything) ────────────────────
   auth:
     profiles: [local, cloud]
     build: ./auth
@@ -256,6 +288,8 @@ volumes:
   postgres_data:
   splunk_data:
   splunk_shared:
+  velociraptor_data:
+  velociraptor_shared:
 
 secrets:
   admin_password:

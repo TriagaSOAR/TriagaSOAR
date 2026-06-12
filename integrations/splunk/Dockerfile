@@ -20,3 +20,6 @@ RUN chmod +x /setup.sh /seed.sh && \
 
 # Don't override entrypoint — use official one
 # Setup runs via docker exec after container is healthy
+# Disable Splunk web UI — only management port (8089) needed for MCP
+RUN mkdir -p /opt/splunk/etc/system/local && \
+    echo -e "[settings]\nstartwebserver = false" > /opt/splunk/etc/system/local/web.conf

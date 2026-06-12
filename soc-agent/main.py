@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from velociraptor import hunt_host, get_clients, create_hunt, velo_available
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 from contextlib import asynccontextmanager
 import asyncio
@@ -1356,4 +1357,73 @@ async def auth0_unblock_user(body: dict):
     conn.execute("INSERT INTO response_actions (action, target, performed_at, details) VALUES (?,?,?,?)",
         ("auth0_unblock", user_id, datetime.now(timezone.utc).isoformat(), json.dumps(result)))
     conn.commit(); conn.close()
+    return result
+
+# Patch instructions for soc-agent/main.py
+# 
+# 1. Add import at top (after existing imports):
+from velociraptor import hunt_host, get_clients, create_hunt, velo_available
+
+# 2. Replace the /investigate endpoint (lines 62-82) with:
+@app.post("/investigate")
+async def investigate_alert(alert: dict):
+    prior_cases = correlate(alert)
+    result = await triage(alert)
+    report = generate_ir_report(alert, result)
+    blast = await estimate_blast_radius(alert, report)
+    report["blast_radius"] = blast
+    attacker_ips = blast.get("attacker_ips", [])
+    report["threat_intel"] = await enrich_ips(attacker_ips) if attacker_ips else {}
+    if prior_cases:
+        report["prior_cases"] = prior_cases
+        report["repeated_attacker"] = True
+    else:
+        report["prior_cases"] = []
+        report["repeated_attacker"] = False
+
+    # Velociraptor: hunt affected hosts for endpoint telemetry
+    alert_type = report.get("alert_type", "default")
+    affected_hosts = blast.get("affected_hosts", []) + attacker_ips
+    velo_results = {}
+    if velo_available() and affected_hosts:
+        for host in affected_hosts[:3]:  # cap at 3 hosts to avoid long delays
+            velo_results[host] = await hunt_host(host, alert_type)
+    if velo_results:
+        report["velociraptor"] = velo_results
+
+    case_id = save_report(report, alert)
+    report["case_id"] = case_id
+    conn = get_connection()
+    report["playbook_executions"] = await run_playbooks(report, db_conn=conn)
+    conn.close()
+    return report
+
+# 3. Add new endpoints before the last line of the file:
+
+@app.get("/velociraptor/status")
+async def velociraptor_status():
+    available = velo_available()
+    clients = await get_clients() if available else []
+    return {
+        "available": available,
+        "client_count": len(clients),
+        "clients": clients[:20],
+    }
+
+@app.post("/velociraptor/hunt")
+async def velociraptor_hunt(body: dict):
+    """Manually trigger a Velociraptor hunt from the UI."""
+    if not velo_available():
+        raise HTTPException(status_code=503, detail="Velociraptor not available")
+    host = body.get("host")
+    artifact = body.get("artifact", "Linux.Sys.Pslist")
+    alert_type = body.get("alert_type", "default")
+    if host:
+        result = await hunt_host(host, alert_type)
+    else:
+        hunt_id = await create_hunt(
+            artifact=artifact,
+            description=body.get("description", "TriagaSOAR manual hunt"),
+        )
+        result = {"hunt_id": hunt_id, "artifact": artifact}
     return result

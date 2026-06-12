@@ -59,19 +59,17 @@ query:
 # ── Splunk self-contained mode ─────────────────────────────────────────
 up-splunk:
 	sudo docker compose --profile local --profile splunk up --remove-orphans -d
-	@echo "Waiting for Splunk to be healthy..."
-	@until sudo docker inspect splunk --format='{{.State.Health.Status}}' 2>/dev/null | grep -q healthy; do sleep 5; echo "Still waiting..."; done
-	@echo "Running Splunk setup..."
+	@echo "Waiting for Splunk to be healthy (3-5 min)..."
+	@until sudo docker inspect splunk --format='{{.State.Health.Status}}' 2>/dev/null | grep -q healthy; do sleep 10; printf '.'; done
+	@echo " Splunk healthy"
 	sudo docker exec splunk bash /setup.sh
 	sudo docker exec splunk bash /seed.sh
 	sudo docker compose --profile local --profile splunk logs -f
 
 splunk-setup:
-	@echo "Waiting for Splunk to be healthy..."
-	@until sudo docker inspect splunk --format='{{.State.Health.Status}}' 2>/dev/null | grep -q healthy; do sleep 5; echo "Still waiting..."; done
+	@until sudo docker inspect splunk --format='{{.State.Health.Status}}' 2>/dev/null | grep -q healthy; do sleep 10; printf '.'; done
 	sudo docker exec splunk bash /setup.sh
 	sudo docker exec splunk bash /seed.sh
-	@echo "Setup complete."
 
 splunk-token:
 	@sudo docker exec splunk cat /tmp/splunk_mcp_token 2>/dev/null || echo "Token not yet generated — run make splunk-setup first"

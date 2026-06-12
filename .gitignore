@@ -7,5 +7,5 @@ data/scubagear/*
 
 integrations/scubagear/certs/*
 secrets/
-docker/splunk/apps/
-docker/splunk/sample-data/
+integrations/splunk/apps/
+integrations/splunk/sample-data/
